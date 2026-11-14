@@ -1553,6 +1553,8 @@ void TimelineCanvas::mouseDown (const juce::MouseEvent& e)
             for (auto& p : owner.groupPartners (sel[i])) sel.addIfNotAlreadyThere (p);
     juce::Array<juce::ValueTree> edited { clip };
     edited.addArray (owner.groupPartners (clip));   // trims and fades also apply to the grouped twins
+    for (auto& c : sel)                              // ... and to every other selected clip (drag one edge, they all follow)
+        if (sel.contains (clip)) edited.addIfNotAlreadyThere (c);
     for (auto& c : (mode == Mode::move ? sel : edited))
         originals.push_back ({ c, prop (c, ids::start), prop (c, ids::length), prop (c, ids::offset), prop (c, ids::fadeIn),
                                prop (c, ids::fadeOut), owner.doc.tracks().indexOf (c.getParent()) });
@@ -2385,8 +2387,9 @@ juce::Array<juce::ValueTree> ArrangeView::groupPartners (const juce::ValueTree& 
     for (auto t : doc.tracks())
         if (t != track && t[ids::group].toString() == grp)
             for (auto c : t)
-                if (c.hasType (ids::CLIP) && std::abs (prop (c, ids::start) - s) < 0.002
-                    && (std::abs (clipEnd (c) - e) < 0.002 || (midi || midiclip::isMidiClip (c))))   // a MIDI part and another clip (or other MIDI parts) of a different length still line up by start
+                if (c.hasType (ids::CLIP)
+                    && ((std::abs (prop (c, ids::start) - s) < 0.002 && std::abs (clipEnd (c) - e) < 0.002)
+                        || ((midi || midiclip::isMidiClip (c)) && prop (c, ids::start) < e - 0.001 && clipEnd (c) > s + 0.001)))   // a MIDI part and another clip (or other MIDI parts) of a different length still line up by start
                     out.add (c);   // like Studio One: only the clips lined up with this one (same start and end)
     return out;
 }
