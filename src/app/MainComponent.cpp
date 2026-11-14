@@ -401,18 +401,38 @@ void MainComponent::saveAsThen (std::function<void()> continuation)
                               const auto picked = fc.getResult();
                               if (picked == juce::File()) return;
                               const auto bundle = project::Bundle::normaliseBundlePath (picked);
+                              auto doSave = [safe, bundle, continuation] {
+                                  if (safe == nullptr) return;
+                                  safe->session->rigs().captureAllPluginStates();
+                                  const auto r = safe->doc->saveTo (bundle);
+                                  if (r.failed())
+                                      safe->showError ("Could not save project", r.getErrorMessage());
+                                  else if (continuation)
+                                      continuation();
+                              };
                               if (bundle != safe->doc->getBundle() && bundle.exists() && project::Bundle::isBundle (bundle))
                               {
-                                  safe->showError ("Project already exists",
-                                                   bundle.getFullPathName() + " already exists. Choose another name.");
+                                  juce::AlertWindow::showAsync (juce::MessageBoxOptions()
+                                                                    .withIconType (juce::MessageBoxIconType::WarningIcon)
+                                                                    .withTitle ("Overwrite project?")
+                                                                    .withMessage ("\"" + bundle.getFileName() + "\" already exists. Overwrite it with this project?\n\n"
+                                                                                  "The old project is moved to the Recycle Bin / Trash.")
+                                                                    .withButton ("Overwrite")
+                                                                    .withButton ("Cancel")
+                                                                    .withAssociatedComponent (safe),
+                                                                [safe, bundle, doSave] (int r) {
+                                                                    if (r != 1 || safe == nullptr) return;
+                                                                    if (! bundle.moveToTrash() && ! bundle.deleteRecursively())
+                                                                    {
+                                                                        safe->showError ("Could not overwrite", "Could not remove the existing " + bundle.getFullPathName()
+                                                                                                                  + ". Is it open in another program?");
+                                                                        return;
+                                                                    }
+                                                                    doSave();
+                                                                });
                                   return;
                               }
-                              safe->session->rigs().captureAllPluginStates();
-                              const auto r = safe->doc->saveTo (bundle);
-                              if (r.failed())
-                                  safe->showError ("Could not save project", r.getErrorMessage());
-                              else if (continuation)
-                                  continuation();
+                              doSave();
                           });
 }
 

@@ -105,6 +105,7 @@ public:
     void showAddInsertMenu (juce::ValueTree track, juce::Component* target);
     /** Open / bypass / move / replace / remove for one insert slot. */
     void showInsertMenu (juce::ValueTree track, int slot, juce::Component* target);
+    void moveTracks (juce::Array<juce::ValueTree> moving, int insertIndex);   // reorder (the moved block lands before insertIndex)
     void openInsert (juce::ValueTree track, int slot);
     void toggleInsertBypass (juce::ValueTree track, int slot);
     /** A plugin dragged from (track id, slot) onto `to` at position `toSlot`: moved within a track, copied (with its

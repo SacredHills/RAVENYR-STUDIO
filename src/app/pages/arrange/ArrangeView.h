@@ -98,6 +98,7 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void tickMeter();
     void refreshInputs();
     void refreshAutomation();
@@ -120,7 +121,7 @@ private:
     void beginGroupDrag (const juce::Identifier& id);
     void applyGroupDelta (const juce::Identifier& id, double delta, double lo, double hi);
     float meterLevel = -100.0f;
-    bool updating = false, draggingTrack = false, resizingTrack = false;
+    bool updating = false, draggingTrack = false, resizingTrack = false, pendingCollapse = false;
     int resizeStartH = 0;
     bool onBottomEdge (int y) const { return y >= getHeight() - 5; }
     void mouseMove (const juce::MouseEvent&) override;
@@ -154,6 +155,8 @@ private:
     ArrangeView& owner;
     enum class Mode { none, move, trimLeft, trimRight, fadeIn, fadeOut, marquee };
     juce::Rectangle<int> marqueeRect;
+    double marqueeStartTime = 0.0;   // where the rectangle started, in content coordinates (it stays put while the view scrolls)
+    int marqueeStartY = 0;
     float sliceX = -1.0f;   // slice tool: where the cut would go (hover)
     void mouseExit (const juce::MouseEvent&) override { sliceX = -1.0f; repaint(); }
     bool keyPressed (const juce::KeyPress& k) override;

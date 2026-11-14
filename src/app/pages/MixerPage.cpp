@@ -384,6 +384,39 @@ void ChannelStrip::mouseDown (const juce::MouseEvent& e)
     session.clickTrack (track, e.mods); // click the strip (name area / background) to select; Shift/Ctrl extend
 }
 
+void ChannelStrip::mouseDrag (const juce::MouseEvent& e)
+{
+    if (trackDragging || e.mods.isPopupMenu() || e.getDistanceFromDragStart() < 6) return;
+    if (auto* c = juce::DragAndDropContainer::findParentDragContainerFor (this))
+    {
+        trackDragging = true;
+        if (! session.isTrackSelected (track)) session.clickTrack (track, {});
+        c->startDragging ("fftrack|" + track[ids::id].toString(), this,
+                          juce::ScaledImage (createComponentSnapshot (getLocalBounds(), true, 1.0f), 1.0), false);
+    }
+}
+
+void ChannelStrip::itemDragMove (const SourceDetails& d)
+{
+    if (! d.description.toString().startsWith ("fftrack|")) return;
+    const int side = d.localPosition.x < getWidth() / 2 ? -1 : 1;
+    if (side != dropSide) { dropSide = side; repaint(); }
+}
+
+void ChannelStrip::itemDropped (const SourceDetails& d)
+{
+    const auto desc = d.description.toString();
+    if (! desc.startsWith ("fftrack|")) { insertList.itemDropped (d); return; }
+    const int side = d.localPosition.x < getWidth() / 2 ? -1 : 1;
+    dropSide = 0;
+    repaint();
+    auto tracks = doc.tracks();
+    juce::ValueTree dragged;
+    for (auto t : tracks) if (t[ids::id].toString() == desc.fromFirstOccurrenceOf ("|", false, false)) dragged = t;
+    if (! dragged.isValid() || dragged == track) return;
+    session.moveTracks (session.linkedTracks (dragged), tracks.indexOf (track) + (side > 0 ? 1 : 0));
+}
+
 void ChannelStrip::mouseDoubleClick (const juce::MouseEvent& e)
 {
     if (e.y < 34) nameLabel.showEditor();
@@ -441,6 +474,11 @@ void ChannelStrip::paint (juce::Graphics& g)
     {
         g.setColour (palette::accent.withAlpha (0.8f));
         g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 5.0f, 1.0f);
+    }
+    if (dropSide != 0)
+    {
+        g.setColour (palette::accent);
+        g.fillRect (dropSide < 0 ? 0 : getWidth() - 3, 0, 3, getHeight());
     }
     const auto colour = juce::Colour::fromString (track[ids::colour].toString());
     g.setColour (colour);

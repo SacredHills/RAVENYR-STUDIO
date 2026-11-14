@@ -78,6 +78,9 @@ public:
     {
         std::function<bool()> isBypassed;
         std::function<void()> toggle;
+        // optional: the track's mute / solo, shown beside Bypass
+        std::function<bool()> isMuted, isSoloed;
+        std::function<void()> toggleMute, toggleSolo;
     };
     void showEditor (std::shared_ptr<juce::AudioPluginInstance>, const juce::String& title, BypassControl bypass = {});
 

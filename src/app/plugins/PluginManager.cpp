@@ -226,11 +226,21 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
             bypass.setTooltip ("Bypass: the sound passes through untouched while this is lit");
             bypass.onClick = [this] { if (bypassControl.toggle) bypassControl.toggle(); syncBypass(); };
             if (bypassControl.isBypassed) { addAndMakeVisible (bypass); syncBypass(); }
+            mute.setClickingTogglesState (false);
+            mute.setColour (juce::TextButton::buttonOnColourId, palette::accent);
+            mute.setTooltip ("Mute this track");
+            mute.onClick = [this] { if (bypassControl.toggleMute) bypassControl.toggleMute(); syncBypass(); };
+            solo.setClickingTogglesState (false);
+            solo.setColour (juce::TextButton::buttonOnColourId, palette::warn);
+            solo.setTooltip ("Solo this track");
+            solo.onClick = [this] { if (bypassControl.toggleSolo) bypassControl.toggleSolo(); syncBypass(); };
+            if (bypassControl.isMuted) addAndMakeVisible (mute);
+            if (bypassControl.isSoloed) addAndMakeVisible (solo);
             pin.setClickingTogglesState (true);
             pin.setColour (juce::TextButton::buttonOnColourId, palette::warn);
             pin.setTooltip ("Pin: keep this plugin window on top of everything (and open) until you unpin it");
             pin.onClick = [this] { if (onPin) onPin (pin.getToggleState()); };
-            for (auto* b : { &copy, &paste, &presets, &bypass, &undoButton, &redoButton, &pin })
+            for (auto* b : { &copy, &paste, &presets, &bypass, &mute, &solo, &undoButton, &redoButton, &pin })
             {
                 b->setWantsKeyboardFocus (false);
                 addAndMakeVisible (*b);
@@ -330,6 +340,8 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
         void fit() { setSize (juce::jmax (editor.getWidth(), minBarWidth), editor.getHeight() + bar); }
         void syncBypass()
         {
+            if (bypassControl.isMuted) mute.setToggleState (bypassControl.isMuted(), juce::dontSendNotification);
+            if (bypassControl.isSoloed) solo.setToggleState (bypassControl.isSoloed(), juce::dontSendNotification);
             if (! bypassControl.isBypassed) return;
             const bool on = bypassControl.isBypassed();
             bypass.setToggleState (on, juce::dontSendNotification);
@@ -349,7 +361,8 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
             auto top = r.removeFromTop (bar).reduced (6, 4);
             // full-size buttons when there is room, compact ones (arrows, narrower buttons, no status text) otherwise
             const bool hasBypass = bypass.isVisible();
-            const bool compact = getWidth() < (hasBypass ? 440 : 350);
+            const int extra = (mute.isVisible() ? 36 : 0) + (solo.isVisible() ? 36 : 0);
+            const bool compact = getWidth() < (hasBypass ? 440 : 350) + extra;
             undoButton.setButtonText (compact ? juce::String::fromUTF8 ("\xe2\x86\x90") : juce::String ("Undo"));
             redoButton.setButtonText (compact ? juce::String::fromUTF8 ("\xe2\x86\x92") : juce::String ("Redo"));
             const int gap = compact ? 3 : 10;
@@ -359,7 +372,10 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
             top.removeFromLeft (gap);
             presets.setBounds (top.removeFromLeft (compact ? 58 : 74));
             top.removeFromLeft (compact ? 3 : 4);
-            if (hasBypass) { bypass.setBounds (top.removeFromLeft (compact ? 66 : 78)); top.removeFromLeft (gap); }
+            if (hasBypass) { bypass.setBounds (top.removeFromLeft (compact ? 66 : 78)); top.removeFromLeft (compact ? 3 : 4); }
+            if (mute.isVisible()) { mute.setBounds (top.removeFromLeft (compact ? 26 : 34)); top.removeFromLeft (2); }
+            if (solo.isVisible()) { solo.setBounds (top.removeFromLeft (compact ? 26 : 34)); top.removeFromLeft (2); }
+            top.removeFromLeft (gap);
             copy.setBounds (top.removeFromLeft (compact ? 44 : 56));
             top.removeFromLeft (compact ? 3 : 4);
             paste.setBounds (top.removeFromLeft (compact ? 46 : 56));
@@ -382,7 +398,7 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
         PluginManager& manager;
         juce::AudioPluginInstance& plugin;
         juce::AudioProcessorEditor& editor;
-        juce::TextButton copy { "Copy" }, paste { "Paste" }, presets { "Presets" }, bypass { "Bypass" }, undoButton { "Undo" }, redoButton { "Redo" }, pin { "Pin" };
+        juce::TextButton copy { "Copy" }, paste { "Paste" }, presets { "Presets" }, bypass { "Bypass" }, mute { "M" }, solo { "S" }, undoButton { "Undo" }, redoButton { "Redo" }, pin { "Pin" };
         std::function<void (bool)> onPin;   // the window stays on top of everything while pinned
         std::weak_ptr<juce::AudioPluginInstance> weakPlugin;
         BypassControl bypassControl;

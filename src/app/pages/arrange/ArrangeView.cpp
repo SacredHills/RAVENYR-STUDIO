@@ -228,6 +228,8 @@ TrackHeader::TrackHeader (ArrangeView& v, juce::ValueTree t, int i) : track (t),
     addChildComponent (channels);
     addChildComponent (route);
 
+    gain.setScrollWheelEnabled (false);   // the wheel scrolls the tracks over the header
+    pan.setScrollWheelEnabled (false);
     gain.setSliderStyle (juce::Slider::LinearHorizontal);
     gain.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     gain.setRange (-60.0, 6.0, 0.1);
@@ -445,7 +447,10 @@ void TrackHeader::mouseDown (const juce::MouseEvent& e)
         showMenu();
         return;
     }
-    owner.session.clickTrack (track, e.mods);
+    // a plain click on one of several selected tracks keeps them all, so they can be dragged as a block (a click without a drag narrows it to this one on release)
+    pendingCollapse = ! e.mods.isShiftDown() && ! e.mods.isCommandDown() && ! e.mods.isCtrlDown()
+                      && owner.session.selectedTracks.size() > 1 && owner.session.isTrackSelected (track);
+    if (! pendingCollapse) owner.session.clickTrack (track, e.mods);
     owner.clearSelection();   // picking tracks leaves no clip selected (Delete would remove the clips instead of the tracks)
     owner.repaintAll();
     if (e.getNumberOfClicks() == 2)
@@ -473,11 +478,23 @@ void TrackHeader::mouseDrag (const juce::MouseEvent& e)
     owner.setTrackDropIndex (idx);
 }
 
+void TrackHeader::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
+{
+    owner.geo.scrollY = juce::jmax (0, owner.geo.scrollY - juce::roundToInt (w.deltaY * 200.0f));
+    owner.updateScrollBars();
+    owner.repaintAll();
+}
+
 void TrackHeader::mouseUp (const juce::MouseEvent&)
 {
     setMouseCursor (juce::MouseCursor::NormalCursor);
     if (resizingTrack) { resizingTrack = false; return; }
-    if (! draggingTrack) return;
+    if (! draggingTrack)
+    {
+        if (pendingCollapse) { pendingCollapse = false; owner.session.clickTrack (track, {}); owner.repaintAll(); }
+        return;
+    }
+    pendingCollapse = false;
     draggingTrack = false;
     const int idx = owner.trackDropIndex();
     owner.setTrackDropIndex (-1);
@@ -1509,6 +1526,9 @@ void TimelineCanvas::mouseDown (const juce::MouseEvent& e)
         // Empty space: a click selects the track and clears the clip selection; a drag draws a selection rectangle.
         mode = Mode::marquee;
         marqueeRect = {};
+        marqueeStartTime = owner.geo.timeFor ((float) e.x);
+        marqueeStartY = e.y + owner.geo.scrollY;
+        juce::Desktop::getInstance().beginDragAutoRepeat (35);   // keeps scrolling while the mouse rests past the edge
         return;
     }
 
@@ -1548,9 +1568,21 @@ void TimelineCanvas::mouseDrag (const juce::MouseEvent& e)
     {
         if (! dragged && e.getDistanceFromDragStart() < 4) return;
         dragged = true;
-        marqueeRect = juce::Rectangle<int>::leftTopRightBottom (juce::jmin (e.getMouseDownX(), e.x), juce::jmin (e.getMouseDownY(), e.y),
-                                                                juce::jmax (e.getMouseDownX(), e.x), juce::jmax (e.getMouseDownY(), e.y));
         auto& geo = owner.geo;
+        // dragging past an edge scrolls the view (the farther out, the faster)
+        {
+            const int w = getWidth(), h = getHeight();
+            const int dy = e.y < 0 ? e.y : (e.y > h ? e.y - h : 0), dx = e.x < 0 ? e.x : (e.x > w ? e.x - w : 0);
+            if (dx != 0 || dy != 0)
+            {
+                geo.scrollY = juce::jmax (0, geo.scrollY + juce::jlimit (-60, 60, dy / 2 + (dy > 0 ? 6 : dy < 0 ? -6 : 0)));
+                geo.scrollX = juce::jmax (0.0, geo.scrollX + juce::jlimit (-60, 60, dx / 2 + (dx > 0 ? 6 : dx < 0 ? -6 : 0)) / geo.pixelsPerSecond);
+                owner.updateScrollBars();
+            }
+        }
+        const int sx = juce::roundToInt (geo.xFor (marqueeStartTime)), sy = marqueeStartY - geo.scrollY;
+        const int cx = juce::jlimit (0, getWidth(), e.x), cy = juce::jlimit (0, getHeight(), e.y);
+        marqueeRect = juce::Rectangle<int>::leftTopRightBottom (juce::jmin (sx, cx), juce::jmin (sy, cy), juce::jmax (sx, cx), juce::jmax (sy, cy));
         const double t0 = geo.timeFor ((float) marqueeRect.getX()), t1 = geo.timeFor ((float) marqueeRect.getRight());
         const int first = owner.trackIndexAtY (marqueeRect.getY());
         const int last = juce::jmin (owner.numTracks() - 1, owner.trackIndexAtY (marqueeRect.getBottom()));
@@ -2349,10 +2381,12 @@ juce::Array<juce::ValueTree> ArrangeView::groupPartners (const juce::ValueTree& 
     const auto grp = track[ids::group].toString();
     if (grp.isEmpty() || juce::ModifierKeys::currentModifiers.isAltDown()) return out;   // Alt: just this clip
     const double s = prop (clip, ids::start), e = clipEnd (clip);
+    const bool midi = midiclip::isMidiClip (clip);
     for (auto t : doc.tracks())
         if (t != track && t[ids::group].toString() == grp)
             for (auto c : t)
-                if (c.hasType (ids::CLIP) && std::abs (prop (c, ids::start) - s) < 0.002 && std::abs (clipEnd (c) - e) < 0.002)
+                if (c.hasType (ids::CLIP) && std::abs (prop (c, ids::start) - s) < 0.002
+                    && (std::abs (clipEnd (c) - e) < 0.002 || (midi && midiclip::isMidiClip (c))))   // MIDI parts of different lengths still line up by start
                     out.add (c);   // like Studio One: only the clips lined up with this one (same start and end)
     return out;
 }
@@ -3240,33 +3274,7 @@ void ArrangeView::paintOverChildren (juce::Graphics& g)
 
 void ArrangeView::moveTracks (juce::Array<juce::ValueTree> moving, int insertIndex)
 {
-    auto tracks = doc.tracks();
-    std::sort (moving.begin(), moving.end(), [&] (const juce::ValueTree& a, const juce::ValueTree& b) {
-        return tracks.indexOf (a) < tracks.indexOf (b);
-    });
-    // desired order: the untouched tracks with the moved block inserted at the drop point
-    juce::Array<juce::ValueTree> order;
-    int insertAt = insertIndex;
-    for (int i = 0; i < tracks.getNumChildren(); ++i)
-    {
-        auto t = tracks.getChild (i);
-        if (moving.contains (t)) { if (i < insertIndex) --insertAt; continue; }
-        order.add (t);
-    }
-    for (int i = 0; i < moving.size(); ++i)
-        order.insert (insertAt + i, moving[i]);
-
-    bool changed = false;
-    for (int i = 0; i < order.size(); ++i)
-        changed = changed || tracks.indexOf (order[i]) != i;
-    if (! changed) return;
-
-    doc.undo().beginNewTransaction (moving.size() > 1 ? "Move tracks" : "Move track");
-    for (int i = 0; i < order.size(); ++i)
-    {
-        const int from = tracks.indexOf (order[i]);
-        if (from != i) tracks.moveChild (from, i, &doc.undo());
-    }
+    session.moveTracks (std::move (moving), insertIndex);
 }
 
 void ArrangeView::addMarkerAtPlayhead()

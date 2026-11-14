@@ -136,6 +136,37 @@ juce::ValueTree SessionController::primaryTrack()
     return {};
 }
 
+void SessionController::moveTracks (juce::Array<juce::ValueTree> moving, int insertIndex)
+{
+    auto tracks = doc.tracks();
+    std::sort (moving.begin(), moving.end(), [&] (const juce::ValueTree& a, const juce::ValueTree& b) {
+        return tracks.indexOf (a) < tracks.indexOf (b);
+    });
+    // desired order: the untouched tracks with the moved block inserted at the drop point
+    juce::Array<juce::ValueTree> order;
+    int insertAt = insertIndex;
+    for (int i = 0; i < tracks.getNumChildren(); ++i)
+    {
+        auto t = tracks.getChild (i);
+        if (moving.contains (t)) { if (i < insertIndex) --insertAt; continue; }
+        order.add (t);
+    }
+    for (int i = 0; i < moving.size(); ++i)
+        order.insert (insertAt + i, moving[i]);
+
+    bool changed = false;
+    for (int i = 0; i < order.size(); ++i)
+        changed = changed || tracks.indexOf (order[i]) != i;
+    if (! changed) return;
+
+    doc.undo().beginNewTransaction (moving.size() > 1 ? "Move tracks" : "Move track");
+    for (int i = 0; i < order.size(); ++i)
+    {
+        const int from = tracks.indexOf (order[i]);
+        if (from != i) tracks.moveChild (from, i, &doc.undo());
+    }
+}
+
 void SessionController::moveTrackVolume (const juce::ValueTree& clicked, double now, double delta)
 {
     const auto store = [this] (juce::ValueTree t, double db) { doc.set (t, ids::gainDb, db <= -59.95 ? -96.0 : juce::jmin (6.0, db)); };
@@ -345,6 +376,15 @@ void SessionController::openInsertWhenLoaded (juce::ValueTree track, int slot, i
         juce::Timer::callAfterDelay (250, [this, track, slot, triesLeft] { openInsertWhenLoaded (track, slot, triesLeft - 1); });
 }
 
+static void addMuteSoloImpl (SessionController* self, PluginManager::BypassControl& bc, juce::ValueTree track)
+{
+    auto setOnTracks = [self] (const juce::ValueTree& t, const juce::Identifier& id, const juce::var& v, bool u) { self->setOnTracks (t, id, v, u); };
+    bc.isMuted = [track] { return (bool) track[ids::mute]; };
+    bc.isSoloed = [track] { return (bool) track[ids::solo]; };
+    bc.toggleMute = [setOnTracks, track] { setOnTracks (track, ids::mute, ! (bool) track[ids::mute], false); };
+    bc.toggleSolo = [setOnTracks, track] { setOnTracks (track, ids::solo, ! (bool) track[ids::solo], false); };
+}
+
 void SessionController::openInsert (juce::ValueTree track, int slot)
 {
     if (plugins == nullptr) return;
@@ -353,6 +393,7 @@ void SessionController::openInsert (juce::ValueTree track, int slot)
         PluginManager::BypassControl bc;
         bc.isBypassed = [this, track, slot] { return (bool) rig::insertNode (track, slot)[rig::ids::bypass]; };
         bc.toggle = [this, track, slot] { toggleInsertBypass (track, slot); };
+        if (track[ids::id].toString() != project::masterId) addMuteSoloImpl (this, bc, track);
         plugins->showEditor (p, rig::insertNode (track, slot)[rig::ids::name].toString() + "  (" + track[ids::name].toString() + ")", bc);
     }
 }
@@ -992,6 +1033,7 @@ void SessionController::openInstrument (juce::ValueTree track)
         PluginManager::BypassControl bc;
         bc.isBypassed = [this, track] { return (bool) track.getChildWithName (midiclip::INSTRUMENT)[rig::ids::bypass]; };
         bc.toggle = [this, track] { toggleInstrumentBypass (track); };
+        addMuteSoloImpl (this, bc, track);
         plugins->showEditor (p, track[ids::name].toString() + " - " + instrumentName (track), bc);
     }
     else

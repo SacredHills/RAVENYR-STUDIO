@@ -59,8 +59,15 @@ class ChannelStrip : public juce::Component, private juce::ValueTree::Listener, 
                      public juce::DragAndDropTarget
 {
 public:
-    bool isInterestedInDragSource (const SourceDetails& d) override { return insertList.isInterestedInDragSource (d); }
-    void itemDropped (const SourceDetails& d) override { insertList.itemDropped (d); }
+    bool isInterestedInDragSource (const SourceDetails& d) override
+    {
+        return d.description.toString().startsWith ("fftrack|") || insertList.isInterestedInDragSource (d);
+    }
+    void itemDropped (const SourceDetails& d) override;
+    void itemDragMove (const SourceDetails& d) override;
+    void itemDragExit (const SourceDetails&) override { if (dropSide != 0) { dropSide = 0; repaint(); } }
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override { trackDragging = false; }
     ChannelStrip (ProjectDocument&, EngineHost&, SessionController&, juce::ValueTree track, int slot);
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
@@ -71,6 +78,7 @@ public:
     void tick();
     static constexpr int width = 104;
     int wantedFaderTop() const;
+    int dropSide = 0;   // -1 / +1: a dragged track will land before / after this strip
     int alignTop = 0;   // set by the mixer: the lowest fader top of all strips
 
 private:
@@ -89,6 +97,7 @@ private:
     juce::Viewport insertView;   // the plugin list scrolls when there are more plugins than room
     RouteList routeList { session, doc, track };
     void showMenu();
+    bool trackDragging = false;
     float level = -100.0f, hold = -100.0f;
     int holdTicks = 0, clipTicks = 0;
     juce::uint32 clipSeen = 0;
