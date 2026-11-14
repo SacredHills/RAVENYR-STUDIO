@@ -2386,7 +2386,7 @@ juce::Array<juce::ValueTree> ArrangeView::groupPartners (const juce::ValueTree& 
         if (t != track && t[ids::group].toString() == grp)
             for (auto c : t)
                 if (c.hasType (ids::CLIP) && std::abs (prop (c, ids::start) - s) < 0.002
-                    && (std::abs (clipEnd (c) - e) < 0.002 || (midi && midiclip::isMidiClip (c))))   // MIDI parts of different lengths still line up by start
+                    && (std::abs (clipEnd (c) - e) < 0.002 || (midi || midiclip::isMidiClip (c))))   // a MIDI part and another clip (or other MIDI parts) of a different length still line up by start
                     out.add (c);   // like Studio One: only the clips lined up with this one (same start and end)
     return out;
 }
