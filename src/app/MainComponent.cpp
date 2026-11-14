@@ -61,6 +61,11 @@ void SectionNav::mouseMove (const juce::MouseEvent& e)
 
 // ------------------------------------------------------------------ main
 
+void MainComponent::parentHierarchyChanged()
+{
+    if (auto* top = getTopLevelComponent(); top != nullptr && top != this) FloatAboveApp::setMainWindow (top);
+}
+
 MainComponent::MainComponent (juce::PropertiesFile& s) : settings (s)
 {
     setLookAndFeel (&lnf);

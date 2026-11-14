@@ -105,6 +105,13 @@ public:
     void showAddInsertMenu (juce::ValueTree track, juce::Component* target);
     /** Open / bypass / move / replace / remove for one insert slot. */
     void showInsertMenu (juce::ValueTree track, int slot, juce::Component* target);
+    // folders (view-only containers that collapse)
+    juce::ValueTree newFolder (juce::Array<juce::ValueTree> members, int insertIndex = -1);
+    void setFolder (juce::Array<juce::ValueTree> tracks, const juce::ValueTree& folder);   // an invalid folder takes them out
+    void toggleFolder (const juce::ValueTree& folder);
+    bool isHiddenByFolder (const juce::ValueTree& track) const;
+    void addFolderMenu (juce::PopupMenu&, const juce::ValueTree& track, int baseId) const;
+    bool handleFolderMenu (int r, const juce::ValueTree& track, int baseId);
     void moveTracks (juce::Array<juce::ValueTree> moving, int insertIndex);   // reorder (the moved block lands before insertIndex)
     void openInsert (juce::ValueTree track, int slot);
     void toggleInsertBypass (juce::ValueTree track, int slot);
@@ -120,7 +127,7 @@ public:
     juce::Result importFiles (const juce::Array<juce::File>& files, juce::ValueTree track, double atSec);
     /** A MIDI file: one instrument track per MIDI track (drums get the Drum Kit, the rest the Basic Synth); the
         project takes the file's tempo if it has no clips yet. */
-    juce::Result importMidi (const juce::File& file, double atSec);
+    juce::Result importMidi (const juce::File& file, double atSec, juce::ValueTree onto = {});   // `onto`: an instrument track that takes the first part
 
     // ---- instrument tracks ----
     /** Menu of instruments (built-in, then your VST / AU instruments) for an instrument track. */

@@ -16,7 +16,7 @@ namespace ids
     FF_TL_ID (file) FF_TL_ID (start) FF_TL_ID (length) FF_TL_ID (offset) FF_TL_ID (fadeIn) FF_TL_ID (fadeOut)
     FF_TL_ID (muted) FF_TL_ID (takeGroup) FF_TL_ID (time)
     FF_TL_ID (instrSource) FF_TL_ID (instrBus)   /* bus track fed by an instrument track's extra output */
-    FF_TL_ID (kind) FF_TL_ID (group) FF_TL_ID (output) FF_TL_ID (SEND) FF_TL_ID (target) FF_TL_ID (level) FF_TL_ID (pre)
+    FF_TL_ID (kind) FF_TL_ID (folder) FF_TL_ID (inFolder) FF_TL_ID (collapsed) FF_TL_ID (group) FF_TL_ID (output) FF_TL_ID (SEND) FF_TL_ID (target) FF_TL_ID (level) FF_TL_ID (pre)
     #undef FF_TL_ID
 }
 
@@ -44,6 +44,10 @@ inline bool isInstrumentTrack (const juce::ValueTree& t) { return kindOf (t) == 
 /** Audio and instrument tracks make sound of their own; bus and FX tracks mix what is routed to them. */
 inline bool isSourceKind (TrackKind k) { return k == TrackKind::audio || k == TrackKind::instrument; }
 inline bool isSourceTrack (const juce::ValueTree& t) { return isSourceKind (kindOf (t)); }
+/** A folder is an (empty, silent) bus track that only organises the arrange view: tracks with `inFolder` = its id sit
+    under it, and collapsing it hides them. It has no strip in the mixer and cannot be routed to. */
+inline bool isFolder (const juce::ValueTree& t) { return (bool) t[ids::folder]; }
+inline juce::String folderIdOf (const juce::ValueTree& t) { return t[ids::inFolder].toString(); }
 /** Whether a clip may live on a track: audio clips on audio tracks, MIDI clips on instrument tracks. */
 bool acceptsClip (const juce::ValueTree& track, const juce::ValueTree& clip);
 juce::String kindName (TrackKind);
@@ -63,7 +67,7 @@ inline juce::String hardwareRouteName (int channel) { return "Out " + juce::Stri
 /** The bus a track plays into ("" = master); a missing bus also means master. May be an interface output (hw:). */
 juce::String outputOf (const juce::ValueTree& track);
 /** False if routing `from` into `to` (output or send) would feed `to` back into itself, or `to` cannot take input. */
-bool canRouteTo (const juce::ValueTree& tracks, const juce::ValueTree& from, const juce::ValueTree& to);
+bool canRouteTo (const juce::ValueTree& tracks, const juce::ValueTree& from, const juce::ValueTree& to, bool toInstrumentInput = false);   // toInstrumentInput: a send into an instrument's audio input
 /** Sends: SEND children { target (track id), level (dB), pre (pre-fader) }. */
 constexpr int maxSends = 8;
 juce::ValueTree addSend (juce::ValueTree track, const juce::String& targetId, double levelDb, bool preFader, juce::UndoManager*);

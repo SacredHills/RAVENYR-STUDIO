@@ -66,6 +66,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void parentHierarchyChanged() override;
 
     /** Runs startup prompts (crash recovery, first-run, device errors). */
     void runStartupChecks();

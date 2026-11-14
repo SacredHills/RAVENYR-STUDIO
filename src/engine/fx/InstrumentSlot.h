@@ -49,7 +49,7 @@ public:
     juce::AudioPluginInstance* activePlugin() const noexcept { return active.load(); }
 
     /** Adds the instrument's sound for `midi` into L / R (n samples, n <= the prepared block). */
-    void render (float* L, float* R, int n, juce::MidiBuffer& midi) noexcept
+    void render (float* L, float* R, int n, juce::MidiBuffer& midi, const float* inL = nullptr, const float* inR = nullptr) noexcept
     {
         auto* p = active.load();
         auxValid = false;
@@ -78,6 +78,11 @@ public:
         if (ch > scratch.getNumChannels()) return;
         juce::AudioBuffer<float> view (scratch.getArrayOfWritePointers(), ch, n);
         view.clear();
+        if (inL != nullptr && p->getTotalNumInputChannels() > 0)   // audio sent into the instrument (samplers, vocoders, ...)
+        {
+            juce::FloatVectorOperations::copy (view.getWritePointer (0), inL, n);
+            if (p->getTotalNumInputChannels() > 1 && inR != nullptr) juce::FloatVectorOperations::copy (view.getWritePointer (1), inR, n);
+        }
         {
             const juce::ScopedLock sl (p->getCallbackLock());
             if (p->isSuspended()) return;

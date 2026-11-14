@@ -139,6 +139,10 @@ juce::ValueTree SessionController::primaryTrack()
 void SessionController::moveTracks (juce::Array<juce::ValueTree> moving, int insertIndex)
 {
     auto tracks = doc.tracks();
+    for (int k = 0, n = moving.size(); k < n; ++k)   // a folder takes its tracks along
+        if (isFolder (moving[k]))
+            for (auto t : tracks)
+                if (folderIdOf (t) == moving[k][ids::id].toString()) moving.addIfNotAlreadyThere (t);
     std::sort (moving.begin(), moving.end(), [&] (const juce::ValueTree& a, const juce::ValueTree& b) {
         return tracks.indexOf (a) < tracks.indexOf (b);
     });
@@ -590,6 +594,91 @@ juce::ValueTree SessionController::addTrack (const juce::String& nameIn, int ins
     return t;
 }
 
+// ------------------------------------------------------------------ folders
+
+juce::ValueTree SessionController::newFolder (juce::Array<juce::ValueTree> members, int insertIndex)
+{
+    auto tracks = doc.tracks();
+    if (tracks.getNumChildren() >= maxTracks)
+    {
+        if (onError) onError ("Track limit", "This version supports up to " + juce::String (maxTracks) + " tracks.");
+        return {};
+    }
+    members.removeIf ([] (const juce::ValueTree& t) { return isFolder (t); });
+    int count = 1;
+    for (auto x : tracks) count += isFolder (x) ? 1 : 0;
+    auto f = createBusTrack ("Folder " + juce::String (count), tracks.getNumChildren(), TrackKind::bus);
+    f.setProperty (ids::folder, true, nullptr);
+    int at = insertIndex < 0 ? tracks.getNumChildren() : juce::jmin (insertIndex, tracks.getNumChildren());
+    for (auto& m : members) at = juce::jmin (at, tracks.indexOf (m));
+    if (at < 0) at = tracks.getNumChildren();
+    doc.undo().beginNewTransaction (members.isEmpty() ? "New folder" : "Folder from tracks");
+    tracks.addChild (f, at, &doc.undo());
+    for (auto& m : members) m.setProperty (ids::inFolder, f[ids::id].toString(), &doc.undo());
+    if (! members.isEmpty()) moveTracks (members, tracks.indexOf (f) + 1);
+    setSelectedTracks ({ f });
+    return f;
+}
+
+void SessionController::setFolder (juce::Array<juce::ValueTree> list, const juce::ValueTree& folder)
+{
+    list.removeIf ([] (const juce::ValueTree& t) { return isFolder (t); });
+    if (list.isEmpty()) return;
+    doc.undo().beginNewTransaction (folder.isValid() ? "Move to folder" : "Take out of folder");
+    for (auto& t : list) t.setProperty (ids::inFolder, folder.isValid() ? folder[ids::id].toString() : juce::String(), &doc.undo());
+    if (folder.isValid()) moveTracks (list, doc.tracks().indexOf (folder) + 1);
+}
+
+void SessionController::toggleFolder (const juce::ValueTree& folder)
+{
+    if (! folder.isValid()) return;
+    doc.undo().beginNewTransaction ("Folder");
+    folder.setProperty (ids::collapsed, ! (bool) folder[ids::collapsed], &doc.undo());
+}
+
+bool SessionController::isHiddenByFolder (const juce::ValueTree& track) const
+{
+    const auto fid = folderIdOf (track);
+    if (fid.isEmpty() || isFolder (track)) return false;
+    const auto f = timeline::findTrack (doc.tracks(), fid);
+    return f.isValid() && (bool) f[ids::collapsed];
+}
+
+void SessionController::addFolderMenu (juce::PopupMenu& menu, const juce::ValueTree& track, int baseId) const
+{
+    juce::PopupMenu m;
+    const int n = tracksForEdit (track).size();
+    m.addItem (baseId, n > 1 ? "New folder from the " + juce::String (n) + " selected tracks" : juce::String ("New folder from this track"));
+    int i = 0;
+    bool any = false;
+    for (auto t : doc.tracks())
+        if (isFolder (t) && i < 50)
+        {
+            if (! any) m.addSeparator();
+            any = true;
+            m.addItem (baseId + 10 + i, (n > 1 ? "Move selected to " : "Move to ") + t[ids::name].toString(), true, folderIdOf (track) == t[ids::id].toString());
+            ++i;
+        }
+    m.addSeparator();
+    m.addItem (baseId + 1, "Take out of folder", folderIdOf (track).isNotEmpty());
+    menu.addSubMenu ("Folder", m);
+}
+
+bool SessionController::handleFolderMenu (int r, const juce::ValueTree& track, int baseId)
+{
+    if (r < baseId || r >= baseId + 60) return false;
+    const auto targets = tracksForEdit (track);
+    if (r == baseId) newFolder (targets);
+    else if (r == baseId + 1) setFolder (targets, {});
+    else
+    {
+        int i = 0;
+        for (auto t : doc.tracks())
+            if (isFolder (t) && i++ == r - baseId - 10) { setFolder (targets, t); break; }
+    }
+    return true;
+}
+
 void SessionController::showAddTrackMenu (juce::Component* target, int insertIndex)
 {
     juce::PopupMenu m;
@@ -597,12 +686,14 @@ void SessionController::showAddTrackMenu (juce::Component* target, int insertInd
     m.addItem (2, "Bus track (group tracks: route them to it)");
     m.addItem (3, "FX track (shared effect: send tracks to it)");
     m.addItem (4, "Instrument track (MIDI with a synth / VST instrument)");
+    m.addItem (5, "Folder (collapse tracks to save space)");
     juce::Component::SafePointer<juce::Component> safe (target);
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target).withMousePosition(), [this, insertIndex] (int r) {
         if (r == 1) addTrack ({}, insertIndex);
         else if (r == 2) addTrack ({}, insertIndex, TrackKind::bus);
         else if (r == 3) addTrack ({}, insertIndex, TrackKind::fx);
         else if (r == 4) addTrack ({}, insertIndex, TrackKind::instrument);
+        else if (r == 5) newFolder ({}, insertIndex);
     });
 }
 
@@ -659,14 +750,16 @@ void SessionController::showRoutingMenu (juce::ValueTree track, juce::Component*
     juce::Array<juce::ValueTree> targets;
     for (auto t : tracks)
     {
-        if (t.hasType (ids::TRACK) && ! isSourceTrack (t) && t != track)
+        if (t.hasType (ids::TRACK) && ! isFolder (t) && t != track && (! isSourceTrack (t) || isInstrumentTrack (t)))
         {
             targets.add (t);
-            const bool ok = canRouteTo (tracks, track, t);
-            out.addItem (100 + i, t[ids::name].toString() + (kindOf (t) == TrackKind::fx ? "  (FX)" : ""), ok, outputOf (track) == t[ids::id].toString());
+            const bool instr = isInstrumentTrack (t);   // an instrument takes sends into its audio input (not an output)
+            const bool ok = canRouteTo (tracks, track, t, instr);
+            if (! instr)
+                out.addItem (100 + i, t[ids::name].toString() + (kindOf (t) == TrackKind::fx ? "  (FX)" : ""), ok, outputOf (track) == t[ids::id].toString());
             bool hasSend = false;
             for (auto c : track) hasSend = hasSend || (c.hasType (ids::SEND) && c[ids::target].toString() == t[ids::id].toString());
-            sends.addItem (300 + i, "Send to " + t[ids::name].toString(), ok && ! hasSend);
+            sends.addItem (300 + i, "Send to " + t[ids::name].toString() + (instr ? "  (instrument input)" : ""), ok && ! hasSend);
             ++i;
         }
     }
@@ -800,6 +893,9 @@ void SessionController::deleteTracks (const juce::Array<juce::ValueTree>& tracks
     for (auto& t : list)
     {
         if (sessionActive && recorders.count (t[ids::id].toString()) > 0) continue;
+        if (isFolder (t))   // its tracks stay, outside any folder
+            for (auto x : doc.tracks())
+                if (folderIdOf (x) == t[ids::id].toString()) x.removeProperty (ids::inFolder, &doc.undo());
         removeRoutesTo (doc.tracks(), t[ids::id].toString(), &doc.undo());
         doc.tracks().removeChild (t, &doc.undo());
     }
@@ -1043,12 +1139,13 @@ void SessionController::openInstrument (juce::ValueTree track)
     }
 }
 
-juce::Result SessionController::importMidi (const juce::File& file, double atSec)
+juce::Result SessionController::importMidi (const juce::File& file, double atSec, juce::ValueTree onto)
 {
     const auto mf = midiclip::readMidiFile (file);
     if (mf.error.isNotEmpty()) return juce::Result::fail (mf.error);
     auto tracks = doc.tracks();
-    if (tracks.getNumChildren() + (int) mf.tracks.size() > maxTracks)
+    if (onto.isValid() && ! isInstrumentTrack (onto)) onto = {};
+    if (tracks.getNumChildren() + (int) mf.tracks.size() - (onto.isValid() ? 1 : 0) > maxTracks)
         return juce::Result::fail ("That would be more than " + juce::String (maxTracks) + " tracks.");
     bool anyClips = false;
     for (auto t : tracks) for (auto c : t) anyClips = anyClips || c.hasType (ids::CLIP);
@@ -1069,12 +1166,16 @@ juce::Result SessionController::importMidi (const juce::File& file, double atSec
     for (auto& it : mf.tracks)
     {
         const bool drums = it.channel == 10;
-        auto t = createBusTrack (it.name, tracks.getNumChildren(), TrackKind::instrument);
-        t.setProperty (ids::inputChannel, -1, nullptr);
-        juce::ValueTree in (midiclip::INSTRUMENT);
-        in.setProperty (rig::ids::desc, fx::builtin::descriptionXml (drums ? "fretforge:drumkit" : "fretforge:synth"), nullptr);
-        in.setProperty (rig::ids::name, drums ? "Drum Kit" : "Basic Synth", nullptr);
-        t.appendChild (in, nullptr);
+        const bool existing = onto.isValid();   // the first part goes onto the track it was dropped on
+        auto t = existing ? onto : createBusTrack (it.name, tracks.getNumChildren(), TrackKind::instrument);
+        if (! existing)
+        {
+            t.setProperty (ids::inputChannel, -1, nullptr);
+            juce::ValueTree in (midiclip::INSTRUMENT);
+            in.setProperty (rig::ids::desc, fx::builtin::descriptionXml (drums ? "fretforge:drumkit" : "fretforge:synth"), nullptr);
+            in.setProperty (rig::ids::name, drums ? "Drum Kit" : "Basic Synth", nullptr);
+            t.appendChild (in, nullptr);
+        }
         auto notes = it.notes;
         auto pedal = it.pedal;
         if (followTrack)
@@ -1092,9 +1193,10 @@ juce::Result SessionController::importMidi (const juce::File& file, double atSec
         }
         auto clip = midiclip::createMidiClip (it.name, atSec, notes, pedal);
         clip.setProperty (midiclip::channel, it.channel, nullptr);
-        t.appendChild (clip, nullptr);
-        tracks.appendChild (t, &doc.undo());
+        t.appendChild (clip, existing ? &doc.undo() : nullptr);
+        if (! existing) tracks.appendChild (t, &doc.undo());
         created.add (t);
+        onto = {};
     }
     setSelectedTracks (created);
     return juce::Result::ok();
@@ -1107,7 +1209,8 @@ juce::Result SessionController::importFiles (const juce::Array<juce::File>& file
     for (auto& f : filesIn)
         if (f.hasFileExtension ("mid;midi;smf"))
         {
-            if (auto r = importMidi (f, atSec); r.failed()) return r;
+            if (auto r = importMidi (f, atSec, track); r.failed()) return r;
+            else if (isInstrumentTrack (track)) track = {};   // that track took it
         }
         else files.add (f);
     if (files.isEmpty()) return juce::Result::ok();
@@ -1125,12 +1228,6 @@ juce::Result SessionController::importFiles (const juce::Array<juce::File>& file
     doc.undo().beginNewTransaction (files.size() > 1 ? "Import " + juce::String (files.size()) + " files" : juce::String ("Import audio"));
     int insertAt = track.isValid() ? tracks.indexOf (track) + 1 : tracks.getNumChildren();
     bool useGivenTrack = track.isValid();
-    if (files.size() > 1 && track.isValid())
-    {
-        bool hasClips = false;
-        for (auto c : track) hasClips = hasClips || c.hasType (ids::CLIP);
-        useGivenTrack = ! hasClips; // fill an empty selected track with the first file
-    }
 
     for (const auto& f : files)
     {

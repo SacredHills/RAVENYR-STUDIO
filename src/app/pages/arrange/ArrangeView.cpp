@@ -303,7 +303,16 @@ void TrackHeader::refresh()
     const juce::ScopedValueSetter<bool> svs (updating, true);
     name.setText (track[ids::name].toString(), juce::dontSendNotification);
     arm.setToggleState ((bool) track[ids::armed], juce::dontSendNotification);
+    const bool folder = isFolder (track);
     const bool audio = isAudioTrack (track), inst = isInstrumentTrack (track);
+    if (folder)
+    {
+        for (juce::Component* c : { (juce::Component*) &arm, &mon, &input, &channels, &route, &laneButton, &gain, &pan, &mute, &solo, (juce::Component*) inserts.get() })
+            c->setVisible (false);
+        resized();
+        repaint();
+        return;
+    }
     arm.setVisible (audio || inst);
     arm.setTooltip (inst ? "Play this instrument from your MIDI keyboard" : "Arm for recording");
     mon.setVisible (audio || inst);
@@ -390,6 +399,27 @@ void TrackHeader::paint (juce::Graphics& g)
         g.fillRect (r);
     }
 
+    if (isFolder (track))   // a chevron: open / closed, and how many tracks are inside
+    {
+        const bool closed = (bool) track[ids::collapsed];
+        juce::Path tri;
+        const float cx = 17.0f, cy = getHeight() * 0.5f;
+        if (closed) tri.addTriangle (cx - 3.0f, cy - 5.0f, cx - 3.0f, cy + 5.0f, cx + 4.0f, cy);
+        else tri.addTriangle (cx - 5.0f, cy - 3.0f, cx + 5.0f, cy - 3.0f, cx, cy + 4.0f);
+        g.setColour (palette::text);
+        g.fillPath (tri);
+        int count = 0;
+        for (auto t : owner.doc.tracks()) count += folderIdOf (t) == track[ids::id].toString() ? 1 : 0;
+        g.setColour (palette::textDim);
+        g.setFont (uiFont (11.0f, true));
+        g.drawText (juce::String (count) + (count == 1 ? " track" : " tracks"), getLocalBounds().withTrimmedRight (14).reduced (6, 0), juce::Justification::centredRight);
+        return;
+    }
+    if (const auto fid = folderIdOf (track); fid.isNotEmpty())   // inside a folder: a stripe in the folder's colour
+    {
+        g.setColour (owner.trackColour (owner.session.findTrack (fid)).withAlpha (0.8f));
+        g.fillRect (getLocalBounds().removeFromLeft (5).translated (5, 0));
+    }
     auto meter = getLocalBounds().removeFromRight (8).reduced (2, 6);
     g.setColour (palette::well);
     g.fillRect (meter);
@@ -401,6 +431,12 @@ void TrackHeader::paint (juce::Graphics& g)
 void TrackHeader::resized()
 {
     auto r = getLocalBounds().reduced (10, 6).withTrimmedRight (6);
+    if (isFolder (track))
+    {
+        r = getLocalBounds().reduced (6, 3).withTrimmedRight (12);
+        name.setBounds (r.withTrimmedLeft (22));
+        return;
+    }
     auto top = r.removeFromTop (24);
     const int bw = 24;
     solo.setBounds (top.removeFromRight (bw).reduced (1));
@@ -438,6 +474,11 @@ void TrackHeader::mouseDown (const juce::MouseEvent& e)
     {
         resizeStartH = getHeight();
         if (e.getNumberOfClicks() == 2) track.setProperty (ArrangeView::laneHeightId, 0, nullptr);
+        return;
+    }
+    if (isFolder (track) && ! e.mods.isPopupMenu() && e.x < 30)
+    {
+        owner.session.toggleFolder (track);
         return;
     }
     if (e.mods.isPopupMenu())
@@ -511,6 +552,8 @@ void TrackHeader::showMenu()
         colours.addColouredItem (100 + i, "Colour " + juce::String (i + 1), juce::Colour::fromString (trackPalette()[i]));
     m.addSubMenu ("Colour", colours);
     owner.session.addGroupMenu (m, track, 700);
+    if (! isFolder (track)) owner.session.addFolderMenu (m, track, 900);
+    else m.addItem (30, (bool) track[ids::collapsed] ? "Open folder" : "Collapse folder");
     m.addSeparator();
     if (! isAudioTrack (track)) {}
     else if (owner.session.trackHasRig (track))
@@ -550,7 +593,8 @@ void TrackHeader::showMenu()
         auto t = safe->track;
         auto tracks = o.doc.tracks();
         const int idx = tracks.indexOf (t);
-        if (o.session.handleGroupMenu (r, t, 700)) return;
+        if (o.session.handleGroupMenu (r, t, 700) || o.session.handleFolderMenu (r, t, 900)) return;
+        if (r == 30) { o.session.toggleFolder (t); return; }
         if (r == 1) safe->name.showEditor();
         else if (r == 10) o.session.addTrackRig (t);
         else if (r == 11) o.session.removeTrackRig (t);
@@ -1286,8 +1330,16 @@ void TimelineCanvas::paint (juce::Graphics& g)
     for (int i = 0; i < n; ++i)
     {
         const int th = geo.heightOf (i), y = geo.topOf (i) - geo.scrollY;
-        if (y > getHeight() || y + th < 0) continue;
+        if (th <= 0 || y > getHeight() || y + th < 0) continue;
         auto t = owner.trackAtIndex (i);
+        if (isFolder (t))   // a folder row is just a band
+        {
+            g.setColour (owner.trackColour (t).withAlpha (0.16f));
+            g.fillRect (0, y, getWidth(), th);
+            g.setColour (palette::outline.withAlpha (0.6f));
+            g.drawHorizontalLine (y + th - 1, 0.0f, (float) getWidth());
+            continue;
+        }
         g.setColour (owner.session.isTrackSelected (t) ? palette::panel.brighter (0.09f) : (i % 2 ? palette::bg : palette::bg.brighter (0.02f)));
         g.fillRect (0, y, getWidth(), th);
         g.setColour (palette::outline.withAlpha (0.6f));
@@ -1323,7 +1375,7 @@ void TimelineCanvas::paint (juce::Graphics& g)
     for (int i = 0; i < n; ++i)
     {
         const int th = geo.heightOf (i), y = geo.topOf (i) - geo.scrollY;
-        if (y > getHeight() || y + th < 0) continue;
+        if (th <= 0 || y > getHeight() || y + th < 0) continue;
         auto t = owner.trackAtIndex (i);
         const auto colour = owner.trackColour (t);
         for (auto c : t)
@@ -1593,6 +1645,7 @@ void TimelineCanvas::mouseDrag (const juce::MouseEvent& e)
         for (int i = first; i <= last; ++i)
         {
             auto t = owner.trackAtIndex (i);
+            if (geo.heightOf (i) <= 0 || isFolder (t)) continue;   // collapsed away / a folder row
             tracksHit.add (t);
             for (auto c : t)
                 if (c.hasType (ids::CLIP) && prop (c, ids::start) < t1 && clipEnd (c) > t0)
@@ -1737,6 +1790,19 @@ bool TimelineCanvas::keyPressed (const juce::KeyPress& k)
 
 void TimelineCanvas::mouseMove (const juce::MouseEvent& e)
 {
+    if (owner.automationMode())
+    {
+        int ht = -1, hp = -1;
+        const int ti = owner.trackIndexAtY (e.y);
+        if (auto t = owner.trackAtIndex (ti); t.isValid())
+        {
+            const auto prm = owner.laneParamFor (t);
+            hp = pointAt (e.position, automation::pointsOf (automation::lane (t, prm, false, nullptr)), prm, laneRect (ti));
+            if (hp >= 0) ht = ti;
+        }
+        if (ht != autoHoverTrack || hp != autoHoverPoint) { autoHoverTrack = ht; autoHoverPoint = hp; repaint(); }
+        return;
+    }
     auto clip = clipAt (owner, e.position);
     if (owner.sliceMode())
     {
@@ -1822,7 +1888,7 @@ void TimelineCanvas::drawAutomation (juce::Graphics& g)
         {
             const auto c = pointPos (prm, pts[(size_t) k], row);
             if (c.x < -6.0f || c.x > (float) getWidth() + 6.0f) continue;
-            const bool hot = i == autoTrack && k == autoPoint;
+            const bool hot = (i == autoTrack && k == autoPoint) || (i == autoHoverTrack && k == autoHoverPoint);
             g.setColour (hot ? juce::Colours::white : colour);
             g.fillEllipse (c.x - 4.5f, c.y - 4.5f, 9.0f, 9.0f);
             if (hot)
@@ -1963,7 +2029,9 @@ void TimelineCanvas::mouseDoubleClick (const juce::MouseEvent& e)
         if (hit < 0)
         {
             autoPending = false;
-            addAutoPoint (ti, e.position, e.mods.isAltDown());
+            addAutoPoint (ti, e.position, true);   // exactly where it was clicked (no grid snap), so it does not jump
+            autoHoverTrack = autoTrack;            // and its value shows
+            autoHoverPoint = autoPoint;
             autoLane = {};
             autoPoint = -1;
             autoTrack = -1;
@@ -2350,8 +2418,11 @@ void ArrangeView::refreshHeights()
     geo.heights.resize ((size_t) tracks.getNumChildren());
     for (int i = 0; i < tracks.getNumChildren(); ++i)
     {
-        const int h = (int) tracks.getChild (i)[laneHeightId];
-        geo.heights[(size_t) i] = h > 0 ? juce::jlimit (ArrangeGeometry::minTrackHeight, ArrangeGeometry::maxTrackHeight, h) : geo.trackHeight;
+        auto tr = tracks.getChild (i);
+        const int h = (int) tr[laneHeightId];
+        geo.heights[(size_t) i] = isFolder (tr) ? folderHeight
+                                : session.isHiddenByFolder (tr) ? 0   // inside a collapsed folder
+                                : h > 0 ? juce::jlimit (ArrangeGeometry::minTrackHeight, ArrangeGeometry::maxTrackHeight, h) : geo.trackHeight;
     }
 }
 
@@ -2425,7 +2496,10 @@ void ArrangeView::layoutHeaders()
 {
     refreshHeights();
     for (auto* h : headers)
+    {
+        h->setVisible (geo.heightOf (h->index) > 0);
         h->setBounds (0, geo.topOf (h->index) - geo.scrollY, headerHolder.getWidth(), geo.heightOf (h->index));
+    }
 }
 
 void ArrangeView::updateScrollBars()
@@ -2516,7 +2590,7 @@ void ArrangeView::valueTreeChildOrderChanged (juce::ValueTree& parent, int, int)
 void ArrangeView::valueTreePropertyChanged (juce::ValueTree& node, const juce::Identifier& prop)
 {
     if (node.hasType (pids::TRANSPORT) || node.hasType (pids::TEMPO)) { syncGeometry(); repaintAll(); }
-    else if (prop == laneHeightId) { layoutHeaders(); updateScrollBars(); repaintAll(); }
+    else if (prop == laneHeightId || prop == ids::collapsed || prop == ids::inFolder) { layoutHeaders(); updateScrollBars(); repaintAll(); }
     else repaintAll();
 }
 

@@ -28,6 +28,8 @@ void GraphMixer::prepare (int maxBlock_, double sampleRate)
     sr = sampleRate > 0 ? sampleRate : 48000.0;
     bufL.assign ((size_t) timeline::maxTracks, std::vector<float> ((size_t) blockSize, 0.0f));
     bufR.assign ((size_t) timeline::maxTracks, std::vector<float> ((size_t) blockSize, 0.0f));
+    instL.assign ((size_t) timeline::maxTracks, std::vector<float> ((size_t) blockSize, 0.0f));
+    instR.assign ((size_t) timeline::maxTracks, std::vector<float> ((size_t) blockSize, 0.0f));
     tmpL.assign ((size_t) blockSize, 0.0f);
     tmpR.assign ((size_t) blockSize, 0.0f);
     active.assign ((size_t) timeline::maxTracks, 0);
@@ -63,7 +65,7 @@ void GraphMixer::processTrack (PlayTrack& t, float* L, float* R, int n) noexcept
     {
         {
             const fx::PlayHeadOffset at (ahead);
-            t.instrument->render (L, R, n, t.midiBuffer);
+            t.instrument->render (L, R, n, t.midiBuffer, t.instInL, t.instInR);
         }
         if (t.inserts != nullptr)
         {
@@ -123,6 +125,15 @@ void GraphMixer::mix (PlaybackGraph& g, Source& source, float* outL, float* outR
     updateLatencies (g);
 
     for (int i = 0; i < numTracks; ++i)
+        if (g.tracks[(size_t) i].instInput)
+        {
+            g.tracks[(size_t) i].instInL = instL[(size_t) i].data();
+            g.tracks[(size_t) i].instInR = instR[(size_t) i].data();
+            juce::FloatVectorOperations::clear (instL[(size_t) i].data(), n);
+            juce::FloatVectorOperations::clear (instR[(size_t) i].data(), n);
+        }
+        else { g.tracks[(size_t) i].instInL = g.tracks[(size_t) i].instInR = nullptr; }
+    for (int i = 0; i < numTracks; ++i)
         if (! timeline::isSourceKind (g.tracks[(size_t) i].kind))
         {
             juce::FloatVectorOperations::clear (bufL[(size_t) i].data(), n);
@@ -160,7 +171,7 @@ void GraphMixer::mix (PlaybackGraph& g, Source& source, float* outL, float* outR
                 juce::FloatVectorOperations::clear (L, n);
                 juce::FloatVectorOperations::clear (R, n);
             }
-            active[(size_t) ti] = source.fill (ti, t, L, R, n) ? 1 : 0;
+            active[(size_t) ti] = (source.fill (ti, t, L, R, n) || t.instInput) ? 1 : 0;
             if (active[(size_t) ti] && (t.rig != nullptr || t.inserts != nullptr || t.instrument != nullptr)) stage.push_back (ti);
         }
 
@@ -216,8 +227,10 @@ void GraphMixer::mix (PlaybackGraph& g, Source& source, float* outL, float* outR
             for (const auto& s : t.sends)
             {
                 if (! juce::isPositiveAndBelow (s.target, numTracks)) continue;
-                addScaled (bufL[(size_t) s.target].data(), L, s.gain * (s.pre ? 1.0f : t.gainL), n);
-                addScaled (bufR[(size_t) s.target].data(), R, s.gain * (s.pre ? 1.0f : t.gainR), n);
+                auto& dstL = g.tracks[(size_t) s.target].instInput ? instL : bufL;   // an instrument takes it as audio input
+                auto& dstR = g.tracks[(size_t) s.target].instInput ? instR : bufR;
+                addScaled (dstL[(size_t) s.target].data(), L, s.gain * (s.pre ? 1.0f : t.gainL), n);
+                addScaled (dstR[(size_t) s.target].data(), R, s.gain * (s.pre ? 1.0f : t.gainR), n);
             }
             for (const auto& s : t.hwSends)
             {

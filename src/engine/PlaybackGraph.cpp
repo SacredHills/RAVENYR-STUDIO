@@ -327,7 +327,8 @@ std::unique_ptr<PlaybackGraph> buildPlaybackGraph (const juce::ValueTree& tracks
                     continue;
                 }
                 const int target = indexOf (c[ids::target].toString());
-                if (target < 0 || target == i || isSourceKind (g->tracks[(size_t) target].kind)) continue;
+                if (target < 0 || target == i || (isSourceKind (g->tracks[(size_t) target].kind) && g->tracks[(size_t) target].kind != TrackKind::instrument)) continue;
+                if (g->tracks[(size_t) target].kind == TrackKind::instrument) g->tracks[(size_t) target].instInput = true;
                 pt.sends.push_back ({ target, juce::Decibels::decibelsToGain ((float) (double) c[ids::level], -96.0f), (bool) c[ids::pre] });
             }
     }

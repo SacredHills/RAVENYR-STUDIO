@@ -42,6 +42,7 @@ private:
     int blockSize = 0;
     double sr = 48000.0;
     std::vector<std::vector<float>> bufL, bufR;
+    std::vector<std::vector<float>> instL, instR;   // audio sent into an instrument track's input
     std::vector<float> tmpL, tmpR;
     std::vector<char> active;
     std::vector<char> scFlag;                          // tracks whose signal feeds some plugin's side-chain

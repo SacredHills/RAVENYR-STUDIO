@@ -384,7 +384,13 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
             top.removeFromRight (compact ? 3 : 6);
             status.setBounds (top);
             const juce::ScopedValueSetter<bool> svs (resizing, true);
-            if (editor.isResizable() && editor.getWidth() >= minBarWidth) editor.setBounds (r);
+            if (editor.isResizable() && editor.getWidth() >= minBarWidth)
+            {
+                editor.setBounds (r);
+                // the plugin would not shrink that far: the window grows back to fit it instead of cutting it off
+                if (editor.getWidth() > r.getWidth() || editor.getHeight() > r.getHeight())
+                    juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<Content> (this)] { if (sp != nullptr) sp->fit(); });
+            }
             else editor.setTopLeftPosition (r.getX() + juce::jmax (0, (r.getWidth() - editor.getWidth()) / 2), r.getY());
         }
         void paint (juce::Graphics& g) override
@@ -433,6 +439,18 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
         }
         floating = std::make_unique<FloatAboveApp> (*this);
         centreWithSize (getWidth(), getHeight());
+        if (ed->isResizable())
+        {
+            // never smaller than the plugin allows (its own minimum, or the size it opened at); larger is fine
+            int minW = ed->getWidth(), minH = ed->getHeight();
+            if (auto* c = ed->getConstrainer())
+            {
+                minW = juce::jmax (c->getMinimumWidth(), 1);
+                minH = juce::jmax (c->getMinimumHeight(), 1);
+            }
+            const int extraW = getWidth() - content->getWidth(), extraH = getHeight() - content->getHeight();
+            setResizeLimits (juce::jmax (minW, Content::minBarWidth) + extraW, minH + Content::bar + extraH, 10000, 10000);
+        }
         setVisible (true);
     }
     ~EditorWindow() override

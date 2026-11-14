@@ -632,7 +632,9 @@ void MixerPage::rebuild()
     for (auto t : tracksNode)
     {
         if (! t.hasType (ids::TRACK) || i >= maxTracks) continue;
-        auto* s = strips.add (new ChannelStrip (doc, host, session, t, i++));
+        const int slot = i++;
+        if (isFolder (t)) continue;   // folders only organise the arrange view
+        auto* s = strips.add (new ChannelStrip (doc, host, session, t, slot));
         stripHolder.addAndMakeVisible (s);
     }
     stripHolder.addChildComponent (divider);

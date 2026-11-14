@@ -178,6 +178,7 @@ private:
     // automation mode: points of the lane each track shows
     juce::ValueTree autoLane;
     int autoTrack = -1, autoPoint = -1;
+    int autoHoverTrack = -1, autoHoverPoint = -1;   // the point under the mouse (its value is shown)
     std::vector<automation::Point> autoPts;
     // a new point needs click-and-hold (autoHoldMs) without moving, so stray clicks add nothing; a double-click adds one
     // at once. Dragging (existing or just-made points) starts after a few pixels and keeps the grab offset, so a point
@@ -335,6 +336,7 @@ public:
     int trackIndexAtY (int canvasY) const;
     void refreshHeights();
     static inline const juce::Identifier laneHeightId { "laneHeight" };   // TRACK: height in the arrange view (0 = default)
+    static constexpr int folderHeight = 30;
     int numTracks() { return doc.tracks().getNumChildren(); }
     juce::Colour trackColour (const juce::ValueTree& t) const;
     void select (const juce::ValueTree& clip, bool add);

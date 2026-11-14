@@ -81,9 +81,10 @@ namespace
     }
 }
 
-bool canRouteTo (const juce::ValueTree& tracks, const juce::ValueTree& from, const juce::ValueTree& to)
+bool canRouteTo (const juce::ValueTree& tracks, const juce::ValueTree& from, const juce::ValueTree& to, bool toInstrumentInput)
 {
-    if (! from.isValid() || ! to.isValid() || from == to || isSourceTrack (to)) return false;
+    if (! from.isValid() || ! to.isValid() || from == to) return false;
+    if (isSourceTrack (to) && ! (toInstrumentInput && isInstrumentTrack (to))) return false;
     // would `to` reach `from`? (then from -> to closes a loop)
     juce::StringArray seen, stack { to[ids::id].toString() };
     const auto fromId = from[ids::id].toString();

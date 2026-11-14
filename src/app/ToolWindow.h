@@ -5,13 +5,19 @@
 
 namespace ff
 {
-/** Plugin and tool windows are ordinary windows: they sit above the main window while you use them and go behind it
-    (or behind any other program) when you click there. Nothing is forced always-on-top any more: that made them cover
-    other windows. Kept as a type so the windows that own one need no change. */
+/** Keeps a plugin / tool window above the main window while you click around in the DAW, without covering other programs:
+    on Windows the window is *owned* by the main window (the OS keeps owned windows above their owner and minimises them
+    with it); elsewhere it is raised again, without taking focus, whenever the main window is used. */
 class FloatAboveApp
 {
 public:
-    explicit FloatAboveApp (juce::DocumentWindow&) {}
+    explicit FloatAboveApp (juce::DocumentWindow& w);
+    ~FloatAboveApp();
+    /** The main application window the others float above (set once by the main component). */
+    static void setMainWindow (juce::Component* main);
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl;
 };
 
 /** A floating window (like a plugin window) showing a component that lives elsewhere: closing only hides it,
