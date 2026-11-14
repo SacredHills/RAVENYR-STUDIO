@@ -401,7 +401,7 @@ void MainComponent::saveAsThen (std::function<void()> continuation)
                               const auto picked = fc.getResult();
                               if (picked == juce::File()) return;
                               const auto bundle = project::Bundle::normaliseBundlePath (picked);
-                              if (bundle != safe->doc->getBundle() && bundle.exists())
+                              if (bundle != safe->doc->getBundle() && bundle.exists() && project::Bundle::isBundle (bundle))
                               {
                                   safe->showError ("Project already exists",
                                                    bundle.getFullPathName() + " already exists. Choose another name.");

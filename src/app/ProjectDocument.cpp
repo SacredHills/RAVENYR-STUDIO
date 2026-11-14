@@ -147,7 +147,22 @@ juce::Result ProjectDocument::copyMediaTo (const juce::File& newBundle)
             if (src == juce::File() || dst == juce::File() || ! src.existsAsFile() || dst.existsAsFile())
                 continue;
             dst.getParentDirectory().createDirectory();
-            if (! src.copyFileTo (dst))
+            bool copied = src.copyFileTo (dst);
+            if (! copied)
+            {
+                // fall back to a plain stream copy (a locked or oddly-shared source can fail CopyFile)
+                dst.deleteFile();
+                juce::FileInputStream in (src);
+                juce::FileOutputStream out (dst);
+                if (in.openedOk() && out.openedOk())
+                {
+                    out.setPosition (0);
+                    out.truncate();
+                    copied = out.writeFromInputStream (in, -1) >= 0;
+                    out.flush();
+                }
+            }
+            if (! copied)
                 return juce::Result::fail ("Could not copy " + src.getFullPathName() + " into the new project folder.");
         }
     return juce::Result::ok();

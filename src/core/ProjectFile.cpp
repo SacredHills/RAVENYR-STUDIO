@@ -301,7 +301,12 @@ const juce::StringArray& Bundle::mediaFolders()
 juce::File Bundle::normaliseBundlePath (const juce::File& dir)
 {
     if (isBundleFolderName (dir))
+    {
+        // picking the project file inside an existing project folder (same name) means that project
+        if (dir.existsAsFile() && isBundleFolderName (dir.getParentDirectory()))
+            return dir.getParentDirectory();
         return dir;
+    }
     return dir.getParentDirectory().getChildFile (dir.getFileName() + bundleExtension);
 }
 
