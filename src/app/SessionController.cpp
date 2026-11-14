@@ -629,8 +629,9 @@ void SessionController::setFolder (juce::Array<juce::ValueTree> list, const juce
     if (folder.isValid()) moveTracks (list, doc.tracks().indexOf (folder) + 1);
 }
 
-void SessionController::toggleFolder (const juce::ValueTree& folder)
+void SessionController::toggleFolder (const juce::ValueTree& folderIn)
 {
+    auto folder = folderIn;
     if (! folder.isValid()) return;
     doc.undo().beginNewTransaction ("Folder");
     folder.setProperty (ids::collapsed, ! (bool) folder[ids::collapsed], &doc.undo());

@@ -307,8 +307,9 @@ void TrackHeader::refresh()
     const bool audio = isAudioTrack (track), inst = isInstrumentTrack (track);
     if (folder)
     {
-        for (juce::Component* c : { (juce::Component*) &arm, &mon, &input, &channels, &route, &laneButton, &gain, &pan, &mute, &solo, (juce::Component*) inserts.get() })
-            c->setVisible (false);
+        arm.setVisible (false); mon.setVisible (false); input.setVisible (false); channels.setVisible (false);
+        route.setVisible (false); laneButton.setVisible (false); gain.setVisible (false); pan.setVisible (false);
+        mute.setVisible (false); solo.setVisible (false); inserts->setVisible (false);
         resized();
         repaint();
         return;
