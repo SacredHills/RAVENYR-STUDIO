@@ -48,6 +48,8 @@ public:
     void paint (juce::Graphics&) override;
     void tick();   // the mixer's timer: follows plugins being added / removed / loading
     juce::ValueTree getTrack() const { return track; }
+    juce::ValueTree getExpandedNode() const { return expandedNode; }
+    void restoreExpanded (juce::ValueTree n) { expandedNode = n; signature = {}; }   // after the mixer rebuilds its strips
     void expand (int slot) { expandedNode = rig::insertNode (track, slot); signature = {}; tick(); }
     bool isInterestedInDragSource (const SourceDetails& d) override;
     void itemDragMove (const SourceDetails& d) override;

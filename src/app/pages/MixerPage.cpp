@@ -947,6 +947,8 @@ void MixerPage::rebind()
 
 void MixerPage::rebuild()
 {
+    std::vector<std::pair<juce::ValueTree, juce::ValueTree>> open;   // track -> its expanded plugin, kept over the rebuild
+    for (auto* r : racks) if (r->getExpandedNode().isValid()) open.emplace_back (r->getTrack(), r->getExpandedNode());
     grips.clear();
     racks.clear();
     strips.clear();
@@ -958,7 +960,9 @@ void MixerPage::rebuild()
         if (isFolder (t)) continue;   // folders only organise the arrange view
         auto* s = strips.add (new ChannelStrip (doc, host, session, t, slot));
         stripHolder.addAndMakeVisible (s);
-        stripHolder.addAndMakeVisible (racks.add (new RackView (session, t)));
+        auto* rk = racks.add (new RackView (session, t));
+        for (auto& o : open) if (o.first == t) rk->restoreExpanded (o.second);
+        stripHolder.addAndMakeVisible (rk);
         stripHolder.addAndMakeVisible (grips.add (new WidthGrip (*this, t)));
     }
     stripHolder.addChildComponent (rackDivider);
