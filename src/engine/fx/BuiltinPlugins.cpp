@@ -1103,24 +1103,6 @@ public:
         g.fillRoundedRectangle (r, 3.0f);
         g.setColour (juce::Colours::white.withAlpha (0.035f));   // brushed metal
         for (float y = 1.0f; y < r.getBottom(); y += 3.0f) g.drawHorizontalLine ((int) y, 0.0f, r.getRight());
-        for (int side = 0; side < 2; ++side)   // rack ears with screws
-        {
-            auto ear = juce::Rectangle<float> (side == 0 ? 0.0f : r.getRight() - earW, 0.0f, earW, r.getBottom());
-            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff4a4a4c), ear.getX(), 0.0f, juce::Colour (0xff222224), ear.getRight(), 0.0f, false));
-            g.fillRect (ear);
-            g.setColour (juce::Colours::black.withAlpha (0.6f));
-            g.drawVerticalLine ((int) (side == 0 ? ear.getRight() - 1.0f : ear.getX()), 0.0f, r.getBottom());
-            for (float sy : { 11.0f, r.getBottom() - 11.0f })
-            {
-                const auto sc = juce::Point<float> (ear.getCentreX(), sy);
-                g.setColour (juce::Colours::black.withAlpha (0.7f));
-                g.fillEllipse (sc.x - 5.0f, sc.y - 4.0f, 10.0f, 10.0f);
-                g.setGradientFill (juce::ColourGradient (juce::Colour (0xffb4b4b6), sc.x - 3.0f, sc.y - 3.0f, juce::Colour (0xff4a4a4c), sc.x + 3.0f, sc.y + 3.0f, true));
-                g.fillEllipse (sc.x - 4.0f, sc.y - 4.0f, 8.0f, 8.0f);
-                g.setColour (juce::Colours::black.withAlpha (0.8f));
-                g.drawLine (sc.x - 2.5f, sc.y + 1.5f, sc.x + 2.5f, sc.y - 1.5f, 1.3f);
-            }
-        }
         g.setColour (juce::Colours::white.withAlpha (0.22f));   // bevel
         g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
         g.setColour (juce::Colours::black.withAlpha (0.8f));
@@ -1145,24 +1127,23 @@ public:
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced ((int) earW + 4, 5);
-        titleArea = r.removeFromTop (18);
+        auto r = getLocalBounds().reduced (7, 6);
+        auto head = r.removeFromTop (20);
+        titleArea = head;
+        abB.setBounds (head.removeFromRight (22).reduced (0, 1));
+        head.removeFromRight (2);
+        abA.setBounds (head.removeFromRight (22).reduced (0, 1));
+        titleArea.removeFromRight (50);
         r.removeFromTop (4);
-        auto top = r.removeFromTop (22);
-        abB.setBounds (top.removeFromRight (22));
-        top.removeFromRight (2);
-        abA.setBounds (top.removeFromRight (22));
-        top.removeFromRight (3);
-        presetBox.setBounds (top);
-        r.removeFromTop (5);
+        if (presetBox.isVisible()) { presetBox.setBounds (r.removeFromTop (22)); r.removeFromTop (5); }
         const int n = (int) knobs.size();
-        const int cols = juce::jlimit (2, 6, r.getWidth() / 62);
+        const int cols = juce::jlimit (2, 6, r.getWidth() / 46);
         const int rows = juce::jmax (1, (n + cols - 1) / cols);
-        const int knobMin = 66, knobPref = 92, gap = 6;
+        const int knobMin = 58, knobPref = 80, gap = 5;
         int cellH, dispH = 0;
         if (display != nullptr)
         {
-            dispH = juce::jmax (60, r.getHeight() - rows * knobPref - gap);
+            dispH = juce::jmax (52, r.getHeight() - rows * knobPref - gap);
             dispH = juce::jmin (dispH, juce::jmax (40, r.getHeight() - rows * knobMin - gap));
             cellH = juce::jmax (knobMin, (r.getHeight() - dispH - gap) / rows);
             display->setBounds (r.removeFromTop (dispH));
@@ -1186,7 +1167,7 @@ public:
     }
 
 private:
-    static constexpr float earW = 14.0f;
+    static constexpr float earW = 0.0f;
 
     struct Knob
     {

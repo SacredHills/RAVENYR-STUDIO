@@ -248,10 +248,14 @@ RackView::RackView (SessionController& s, juce::ValueTree t) : session (s), trac
     vp.setScrollBarsShown (true, false);
     vp.setScrollBarThickness (5);
     addAndMakeVisible (vp);
+    for (int i = 0, n = rig::numInserts (track); i < n; ++i) knownInserts.push_back (rig::insertNode (track, i));
+    knownReady = true;
     signature = makeSignature();
+    track.addListener (this);
+    session.rigs().statusChanged.addChangeListener (this);
 }
 
-RackView::~RackView() { vp.setViewedComponent (nullptr, false); panel.reset(); }
+RackView::~RackView() { cancelPendingUpdate(); track.removeListener (this); session.rigs().statusChanged.removeChangeListener (this); vp.setViewedComponent (nullptr, false); panel.reset(); }
 
 bool RackView::isBuiltIn (int index) const
 {
@@ -274,6 +278,21 @@ juce::String RackView::makeSignature() const
 
 void RackView::tick()
 {
+    {   // a built-in that appeared on this track (added, pasted, dropped here) expands
+        const int n = rig::numInserts (track);
+        std::vector<juce::ValueTree> now;
+        juce::ValueTree fresh;
+        for (int i = 0; i < n; ++i)
+        {
+            const auto node = rig::insertNode (track, i);
+            now.push_back (node);
+            if (std::find (knownInserts.begin(), knownInserts.end(), node) == knownInserts.end() && isBuiltIn (i)) fresh = node;
+        }
+        const bool first = ! knownReady;
+        knownReady = true;
+        knownInserts = std::move (now);
+        if (fresh.isValid() && ! first) { expandedNode = fresh; signature = {}; }
+    }
     const auto sig = makeSignature();
     const auto plugin = (expanded >= 0 && expanded < rig::numInserts (track)) ? session.rigs().insertPlugin (track, expanded) : nullptr;
     if (sig != signature || (expanded >= 0 && plugin != panelPlugin)) { signature = sig; rebuild(); }
@@ -290,7 +309,10 @@ void RackView::resized()
 void RackView::rebuild()
 {
     const int n = rig::numInserts (track);
-    if (expanded >= n || (expanded >= 0 && ! isBuiltIn (expanded))) expanded = -1;
+    expanded = -1;
+    for (int i = 0; i < n && expandedNode.isValid(); ++i)
+        if (rig::insertNode (track, i) == expandedNode) expanded = i;
+    if (expanded < 0 || ! isBuiltIn (expanded)) { expanded = -1; expandedNode = {}; }
     if (expanded >= 0 && ! session.rigs().insertStatus (track, expanded).loaded) { /* keep: it opens once loaded */ }
     // the panel for the expanded slot
     std::shared_ptr<juce::AudioPluginInstance> plugin = expanded >= 0 ? session.rigs().insertPlugin (track, expanded) : nullptr;
@@ -477,6 +499,7 @@ void RackView::contentUp (const juce::MouseEvent& e)
     if (onLed) { session.toggleInsertBypass (track, i); return; }
     if (onOpen || ! isBuiltIn (i)) { session.openInsert (track, i); return; }
     expanded = expanded == i ? -1 : i;   // a built-in expands in the rack (one at a time)
+    expandedNode = expanded >= 0 ? rig::insertNode (track, i) : juce::ValueTree();
     signature = makeSignature();
     rebuild();
     if (expanded >= 0) vp.setViewPosition (0, juce::jmax (0, row->y - 4));

@@ -37,7 +37,8 @@ private:
 /** The rack on top of a mixer strip: one slot per plugin on the track (plus its NAM amp). Slots are collapsed rows
     (name, bypass LED); a built-in plugin expands in place into its compact panel, one at a time, filling the rack.
     Other plugins open their own window (the arrow). The last row adds a plugin. */
-class RackView : public juce::Component, public juce::DragAndDropTarget
+class RackView : public juce::Component, public juce::DragAndDropTarget, private juce::ValueTree::Listener,
+                 private juce::ChangeListener, private juce::AsyncUpdater
 {
 public:
     RackView (SessionController& s, juce::ValueTree t);
@@ -47,13 +48,20 @@ public:
     void paint (juce::Graphics&) override;
     void tick();   // the mixer's timer: follows plugins being added / removed / loading
     juce::ValueTree getTrack() const { return track; }
-    void expand (int slot) { expanded = slot; signature = {}; tick(); }
+    void expand (int slot) { expandedNode = rig::insertNode (track, slot); signature = {}; tick(); }
     bool isInterestedInDragSource (const SourceDetails& d) override;
     void itemDragMove (const SourceDetails& d) override;
     void itemDragExit (const SourceDetails&) override { dropRow = -1; content.repaint(); }
     void itemDropped (const SourceDetails& d) override;
 
 private:
+    // refresh at once when this track's plugins change or finish loading (the mixer's timer is only a backstop)
+    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override { triggerAsyncUpdate(); }
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { triggerAsyncUpdate(); }
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { triggerAsyncUpdate(); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { triggerAsyncUpdate(); }
+    void changeListenerCallback (juce::ChangeBroadcaster*) override { triggerAsyncUpdate(); }
+    void handleAsyncUpdate() override { tick(); }
     struct Row { int kind, index, y; };   // kind: 0 NAM amp, 1 plugin, 2 "+ Add plugin"
     struct Content final : public juce::Component
     {
@@ -72,7 +80,10 @@ private:
     juce::Rectangle<int> panelArea;
     std::shared_ptr<juce::AudioPluginInstance> panelPlugin;   // declared before the panel: outlives it
     std::unique_ptr<juce::Component> panel;
-    int expanded = -1, dropRow = -1;
+    int expanded = -1, dropRow = -1;   // expanded: index of expandedNode (the slot follows its plugin when slots move)
+    juce::ValueTree expandedNode;
+    bool knownReady = false;
+    std::vector<juce::ValueTree> knownInserts;   // to spot newly added built-ins and expand them
     bool dragging = false;
     juce::String signature;
     void rebuild();
