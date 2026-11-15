@@ -360,7 +360,7 @@ void SessionController::showAddInsertMenu (juce::ValueTree track, juce::Componen
             const auto c = plugins->clipboard;
             doc.undo().beginNewTransaction ("Paste plugin " + c.name);
             const int at = rig::addInsert (track, c.descXml, c.name, &doc.undo(), c.state);
-            if (at >= 0 && c.descXml.contains ("fretforge:") && onBuiltInInsertAdded) onBuiltInInsertAdded (track, at);
+            if (at >= 0 && ff::fx::builtin::hasRackPanelForDescription (c.descXml) && onBuiltInInsertAdded) onBuiltInInsertAdded (track, at);
             return;
         }
         juce::String name;
@@ -369,7 +369,7 @@ void SessionController::showAddInsertMenu (juce::ValueTree track, juce::Componen
         doc.undo().beginNewTransaction ("Add plugin " + name);
         const int slot = rig::addInsert (track, desc, name, &doc.undo());
         if (slot < 0) return;
-        if (desc.contains ("fretforge:")) { if (onBuiltInInsertAdded) onBuiltInInsertAdded (track, slot); }   // expands in the rack
+        if (ff::fx::builtin::hasRackPanelForDescription (desc)) { if (onBuiltInInsertAdded) onBuiltInInsertAdded (track, slot); }   // expands in the rack
         else openInsertWhenLoaded (track, slot, 40);   // its window opens once it has loaded
     });
 }

@@ -38,6 +38,9 @@ const std::vector<Preset>& factoryPresets (const juce::String& id);
 /** Applies a preset to a built-in plugin instance (false if it is not one). */
 bool applyPreset (juce::AudioPluginInstance&, const Preset&);
 
+/** Whether a built-in expands as a compact panel inside a mixer rack slot (the others open their own window). */
+bool hasRackPanel (const juce::String& id);
+bool hasRackPanelForDescription (const juce::String& descXml);
 /** The compact editor shown inside a mixer rack slot (nullptr for plugins that are not effects of ours). Sized by the host;
     the plugin must outlive it. onEdit gets the plugin's state before and after each change (for undo). */
 std::unique_ptr<juce::Component> createRackPanel (juce::AudioPluginInstance&,

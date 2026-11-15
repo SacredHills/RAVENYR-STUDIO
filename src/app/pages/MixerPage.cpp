@@ -259,7 +259,7 @@ RackView::~RackView() { cancelPendingUpdate(); track.removeListener (this); sess
 
 bool RackView::isBuiltIn (int index) const
 {
-    return rig::insertNode (track, index)[rig::ids::desc].toString().contains ("fretforge:");
+    return ff::fx::builtin::hasRackPanelForDescription (rig::insertNode (track, index)[rig::ids::desc].toString());
 }
 
 juce::String RackView::makeSignature() const
@@ -411,9 +411,15 @@ void RackView::drawRowHeader (juce::Graphics& g, const Row& row, int w)
     g.drawEllipse (lamp, 1.0f);
     if (row.kind == 1)   // open the plugin's own window
     {
-        auto a = r.removeFromRight (20.0f).withSizeKeepingCentre (9.0f, 9.0f);
-        g.setColour (palette::textDim);
-        g.drawArrow (juce::Line<float> (a.getX(), a.getBottom(), a.getRight(), a.getY()), 1.3f, 5.0f, 5.0f);
+        auto a = r.removeFromRight (26.0f).withSizeKeepingCentre (20.0f, 16.0f);   // "open the plugin window" button
+        g.setColour (juce::Colours::white.withAlpha (0.14f));
+        g.fillRoundedRectangle (a, 3.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.65f));
+        g.drawRoundedRectangle (a, 3.0f, 1.0f);
+        auto win = a.reduced (4.5f, 4.0f);   // a window with an arrow leaving it
+        g.drawRect (win.withTrimmedRight (2.0f).withTrimmedTop (2.0f), 1.0f);
+        g.setColour (juce::Colours::white);
+        g.drawArrow (juce::Line<float> (win.getCentreX() - 1.0f, win.getCentreY() + 1.0f, win.getRight(), win.getY()), 1.6f, 4.5f, 4.5f);
     }
     auto left = r.reduced (4.0f, 0.0f);
     if (builtIn)
@@ -485,7 +491,7 @@ void RackView::contentUp (const juce::MouseEvent& e)
     const auto* row = rowAt (e.y);
     if (row == nullptr) return;
     const int w = content.getWidth();
-    const bool onLed = e.x > w - 20, onOpen = e.x > w - 40 && e.x <= w - 20;
+    const bool onLed = e.x > w - 20, onOpen = e.x > w - 46 && e.x <= w - 20;
     if (row->kind == 2) { session.showAddInsertMenu (track, this); return; }
     if (row->kind == 0)
     {

@@ -995,7 +995,132 @@ private:
     Biquad hp, springLp;
 };
 
-/** Rack-mount look for the knobs: a machined knob with a pointer and a scale of ticks around it. */
+// =====================================================================================================  console EQ
+
+/** A four-band console EQ in the style of the classic E-series channel strip: high / high-mid / low-mid / low bands
+    (the outer bands switch between shelf and bell), an 18 dB/oct high-pass and a 12 dB/oct low-pass. The curves are
+    standard biquads for now; they can be voiced further later. */
+class SslEq final : public Base
+{
+public:
+    explicit SslEq (const Info& i) : Base (i, layout()) {}
+    static Layout layout()
+    {
+        Layout l;
+        auto sw = [&l] (const char* id, const char* name, bool def) {
+            l.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { id, 1 }, name, def));
+        };
+        l.add (param ("hfGain", "HF Gain", -16.0f, 16.0f, 0.0f, "dB"));
+        l.add (param ("hfFreq", "HF Freq", 1500.0f, 16000.0f, 8000.0f, "Hz", 5000.0f));
+        sw ("hfBell", "HF Bell", false);
+        l.add (param ("hmfGain", "HMF Gain", -16.0f, 16.0f, 0.0f, "dB"));
+        l.add (param ("hmfFreq", "HMF Freq", 600.0f, 7000.0f, 3000.0f, "Hz", 2500.0f));
+        l.add (param ("hmfQ", "HMF Q", 0.5f, 2.5f, 1.0f, ""));
+        l.add (param ("lmfGain", "LMF Gain", -16.0f, 16.0f, 0.0f, "dB"));
+        l.add (param ("lmfFreq", "LMF Freq", 200.0f, 2500.0f, 800.0f, "Hz", 700.0f));
+        l.add (param ("lmfQ", "LMF Q", 0.5f, 2.5f, 1.0f, ""));
+        l.add (param ("lfGain", "LF Gain", -16.0f, 16.0f, 0.0f, "dB"));
+        l.add (param ("lfFreq", "LF Freq", 30.0f, 450.0f, 100.0f, "Hz", 120.0f));
+        sw ("lfBell", "LF Bell", false);
+        l.add (param ("hpf", "HPF Freq", 16.0f, 350.0f, 60.0f, "Hz", 60.0f));
+        l.add (param ("lpf", "LPF Freq", 3000.0f, 22000.0f, 12000.0f, "Hz", 9000.0f));
+        sw ("hpfOn", "HPF In", false);
+        sw ("lpfOn", "LPF In", false);
+        sw ("eqIn", "EQ In", true);
+        return l;
+    }
+    void prepareToPlay (double, int) override { for (auto& st : stage) { st.l.reset(); st.r.reset(); st.on = false; } }
+    void process (float* L, float* R, int n) noexcept override
+    {
+        if (p ("eqIn") < 0.5f) return;
+        const double sr = sampleRate();
+        const bool bellLf = p ("lfBell") > 0.5f, bellHf = p ("hfBell") > 0.5f;
+        auto tune = [&] (Stage& st, bool on, auto&& setter) {
+            if (! on) { if (st.on) { st.l.reset(); st.r.reset(); } st.on = false; return; }
+            setter (st.l);
+            st.r.b0 = st.l.b0; st.r.b1 = st.l.b1; st.r.b2 = st.l.b2; st.r.a1 = st.l.a1; st.r.a2 = st.l.a2;
+            st.on = true;
+        };
+        const double hpf = p ("hpf"), lpf = p ("lpf");
+        tune (stage[0], p ("hpfOn") > 0.5f, [&] (Biquad& b) { b.setFirstOrder (true, sr, hpf); });
+        tune (stage[1], p ("hpfOn") > 0.5f, [&] (Biquad& b) { b.set (Biquad::highPass, sr, hpf, 1.0); });
+        tune (stage[2], p ("lpfOn") > 0.5f, [&] (Biquad& b) { b.set (Biquad::lowPass, sr, lpf, 0.7071); });
+        const double lfG = p ("lfGain"), lmfG = p ("lmfGain"), hmfG = p ("hmfGain"), hfG = p ("hfGain");
+        tune (stage[3], std::abs (lfG) > 0.05, [&] (Biquad& b) { b.set (bellLf ? Biquad::peak : Biquad::lowShelf, sr, p ("lfFreq"), bellLf ? 0.9 : 0.7071, lfG); });
+        tune (stage[4], std::abs (lmfG) > 0.05, [&] (Biquad& b) { b.set (Biquad::peak, sr, p ("lmfFreq"), p ("lmfQ"), lmfG); });
+        tune (stage[5], std::abs (hmfG) > 0.05, [&] (Biquad& b) { b.set (Biquad::peak, sr, p ("hmfFreq"), p ("hmfQ"), hmfG); });
+        tune (stage[6], std::abs (hfG) > 0.05, [&] (Biquad& b) { b.set (bellHf ? Biquad::peak : Biquad::highShelf, sr, p ("hfFreq"), bellHf ? 0.9 : 0.7071, hfG); });
+        for (auto& st : stage)
+        {
+            if (! st.on) continue;
+            st.l.process (L, n);
+            if (R != nullptr) st.r.process (R, n);
+        }
+    }
+private:
+    struct Stage { Biquad l, r; bool on = false; };
+    std::array<Stage, 7> stage {};
+};
+
+// =====================================================================================================  rack panel
+
+/** Gain-reduction meter, vertical (limiter) or a slim horizontal bar (compressor): no box around it. */
+class GrBar final : public juce::Component, private juce::Timer
+{
+public:
+    GrBar (std::atomic<float>& g, float maxDbIn, bool horizontalBar) : gr (g), maxDb (maxDbIn), horizontal (horizontalBar) { startTimerHz (30); }
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        g.setFont (juce::Font (juce::FontOptions (9.5f, juce::Font::bold)));
+        if (horizontal)
+        {
+            g.setColour (col::dim);
+            g.drawText ("GR", r.removeFromLeft (20.0f), juce::Justification::centredLeft);
+            g.drawText (juce::String (shown, 1) + " dB", r.removeFromRight (46.0f), juce::Justification::centredRight);
+            auto bar = r.withSizeKeepingCentre (r.getWidth(), 9.0f).reduced (2.0f, 0.0f);
+            g.setColour (juce::Colour (0xff060606));
+            g.fillRoundedRectangle (bar, 2.0f);
+            g.setColour (col::bad.withAlpha (0.9f));
+            g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * juce::jlimit (0.0f, 1.0f, shown / maxDb)), 2.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.18f));
+            g.drawRoundedRectangle (bar, 2.0f, 1.0f);
+            return;
+        }
+        g.setColour (col::dim);
+        g.drawText ("GR", r.removeFromTop (14.0f), juce::Justification::centred);
+        auto valueRow = r.removeFromBottom (14.0f);
+        g.drawText (juce::String (shown, 1), valueRow, juce::Justification::centred);
+        auto track = r.reduced (juce::jmax (2.0f, (r.getWidth() - 10.0f) * 0.5f), 2.0f);
+        g.setColour (juce::Colour (0xff060606));
+        g.fillRoundedRectangle (track, 2.0f);
+        g.setColour (col::bad.withAlpha (0.9f));
+        g.fillRoundedRectangle (track.withHeight (track.getHeight() * juce::jlimit (0.0f, 1.0f, shown / maxDb)), 2.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.18f));
+        g.drawRoundedRectangle (track, 2.0f, 1.0f);
+        g.setFont (juce::Font (juce::FontOptions (8.0f)));
+        for (int db = 0; db <= (int) maxDb; db += 3)   // scale
+        {
+            const float y = track.getY() + track.getHeight() * (float) db / maxDb;
+            g.setColour (juce::Colours::white.withAlpha (0.35f));
+            g.drawHorizontalLine ((int) y, track.getRight() + 1.0f, track.getRight() + 4.0f);
+        }
+    }
+private:
+    std::atomic<float>& gr;
+    float maxDb;
+    bool horizontal;
+    float shown = 0.0f;
+    void timerCallback() override
+    {
+        const float v = gr.exchange (0.0f);
+        shown = v > shown ? v : juce::jmax (v, shown - 0.5f);
+        repaint();
+    }
+};
+
+/** Rack-mount look for the knobs: a machined knob with a pointer and a scale of ticks around it. A slider with a "cap"
+    property gets a coloured knob top (the console EQ's colour-coded bands). */
 struct RackLnF final : public juce::LookAndFeel_V4
 {
     void drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float start, float end, juce::Slider& s) override
@@ -1005,6 +1130,8 @@ struct RackLnF final : public juce::LookAndFeel_V4
         const auto c = b.getCentre();
         auto pt = [&] (float ang, float rad) { return juce::Point<float> (c.x + rad * std::sin (ang), c.y - rad * std::cos (ang)); };
         const auto ink = s.findColour (juce::Slider::rotarySliderFillColourId);
+        const bool capped = s.getProperties().contains ("cap");
+        const auto cap = capped ? juce::Colour ((juce::uint32) (int) s.getProperties()["cap"]) : juce::Colour (0xff3a3a3a);
         for (int i = 0; i <= 10; ++i)   // scale
         {
             const float a = start + (float) i / 10.0f * (end - start);
@@ -1018,35 +1145,49 @@ struct RackLnF final : public juce::LookAndFeel_V4
                                                  juce::Colour (0xff1c1c1c), c.x + kr * 0.6f, c.y + kr, true));
         g.fillEllipse (c.x - kr, c.y - kr, kr * 2.0f, kr * 2.0f);
         const float tr = kr * 0.82f;   // the knob's top
-        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff3a3a3a), c.x, c.y - tr, juce::Colour (0xff121212), c.x, c.y + tr, false));
+        g.setGradientFill (juce::ColourGradient (cap.brighter (capped ? 0.25f : 0.0f), c.x, c.y - tr, cap.darker (capped ? 0.55f : 0.7f), c.x, c.y + tr, false));
         g.fillEllipse (c.x - tr, c.y - tr, tr * 2.0f, tr * 2.0f);
         g.setColour (juce::Colours::black);
         g.drawEllipse (c.x - kr, c.y - kr, kr * 2.0f, kr * 2.0f, 1.0f);
         const float ang = start + pos * (end - start);
-        g.setColour (ink);
+        g.setColour (capped ? juce::Colours::white : ink);
         g.drawLine (juce::Line<float> (pt (ang, tr * 0.25f), pt (ang, tr * 0.95f)), 2.4f);
-        juce::Path arc;   // value ring
-        arc.addCentredArc (c.x, c.y, r * 0.8f, r * 0.8f, 0.0f, start, ang, true);
-        g.setColour (ink.withAlpha (0.8f));
-        g.strokePath (arc, juce::PathStrokeType (1.6f));
+        if (! capped)
+        {
+            juce::Path arc;   // value ring
+            arc.addCentredArc (c.x, c.y, r * 0.8f, r * 0.8f, 0.0f, start, ang, true);
+            g.setColour (ink.withAlpha (0.8f));
+            g.strokePath (arc, juce::PathStrokeType (1.6f));
+        }
     }
     juce::Font getLabelFont (juce::Label&) override { return juce::Font (juce::FontOptions (10.0f, juce::Font::bold)); }
 };
 
-/** The compact version of a built-in's editor that lives inside a mixer rack slot, styled as a rack unit: faceplate with
-    rack ears and screws, engraved name, preset menu and A/B, the plugin's picture (EQ curve, gain reduction...) and its
-    knobs. It fills whatever size the rack gives it. Edits are reported (state before / after) so the host can undo them. */
+/** The compact version of a built-in's editor that lives inside a mixer rack slot, styled as a rack unit: faceplate,
+    engraved name, preset menu and A/B, and the plugin's knobs. It fills whatever size the rack gives it. Edits are
+    reported (state before / after) so the host can undo them. */
 class RackPanel final : public juce::Component, private juce::AudioProcessorParameter::Listener
 {
 public:
     using EditFn = std::function<void (const juce::MemoryBlock&, const juce::MemoryBlock&)>;
 
-    RackPanel (Base& b, EditFn onEditFn) : proc (b), eq (dynamic_cast<Eq*> (&b)), onEdit (std::move (onEditFn))
+    RackPanel (Base& b, EditFn onEditFn) : proc (b), onEdit (std::move (onEditFn))
     {
         const auto id = juce::String (b.info.id);
-        face = id == "fretforge:eq" ? juce::Colour (0xff1c2530) : id == "fretforge:comp" ? juce::Colour (0xff2a211f)
+        face = id == "fretforge:ssleq" ? juce::Colour (0xff2b2d30) : id == "fretforge:comp" ? juce::Colour (0xff2a211f)
              : id == "fretforge:limiter" ? juce::Colour (0xff2a1c22) : id == "fretforge:reverb" ? juce::Colour (0xff1b2926)
              : id == "fretforge:delay" ? juce::Colour (0xff232233) : id == "fretforge:chorus" ? juce::Colour (0xff29281c) : juce::Colour (0xff202020);
+        ssl = dynamic_cast<SslEq*> (&b) != nullptr;
+        if (auto* lim = dynamic_cast<Limiter*> (&b))   // knobs down the left, the meter up the right
+        {
+            sideMeter = std::make_unique<GrBar> (lim->grDb, 12.0f, false);
+            addAndMakeVisible (*sideMeter);
+        }
+        else if (auto* comp = dynamic_cast<Compressor*> (&b))
+        {
+            topMeter = std::make_unique<GrBar> (comp->grDb, 12.0f, true);
+            addAndMakeVisible (*topMeter);
+        }
         const auto& presets = factoryPresets (id);
         for (size_t i = 0; i < presets.size(); ++i)
             presetBox.addItem ((presets[i].category.isNotEmpty() ? presets[i].category + ": " : juce::String()) + presets[i].name, (int) i + 1);
@@ -1072,21 +1213,11 @@ public:
         abA.setToggleState (true, juce::dontSendNotification);
         abA.onClick = [this] { switchTo (0); };
         abB.onClick = [this] { switchTo (1); };
-
-        if (eq != nullptr)
-        {
-            auto g = std::make_unique<EqGraph> (*eq);
-            graph = g.get();
-            graph->onSelect = [this] (int band) { buildKnobs (band); resized(); };
-            display = std::move (g);
-        }
-        else display = b.createDisplay();
-        if (display != nullptr) addAndMakeVisible (*display);
         viewport.setViewedComponent (&grid, false);
         viewport.setScrollBarsShown (true, false);
         viewport.setScrollBarThickness (5);
         addAndMakeVisible (viewport);
-        buildKnobs (0);
+        buildKnobs();
         for (auto* p : proc.getParameters()) p->addListener (this);
     }
 
@@ -1114,13 +1245,6 @@ public:
         g.drawText (juce::String (proc.info.name).toUpperCase(), t.translated (0.0f, -1.0f), juce::Justification::centredLeft);
         g.setColour (juce::Colour (0xffe6e6e6));
         g.drawText (juce::String (proc.info.name).toUpperCase(), t, juce::Justification::centredLeft);
-        juce::GlyphArrangement ga;
-        ga.addLineOfText (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)), juce::String (proc.info.name).toUpperCase(), 0.0f, 0.0f);
-        const float nameW = ga.getBoundingBox (0, -1, true).getWidth();
-        g.setFont (juce::Font (juce::FontOptions (8.5f)));
-        g.setColour (juce::Colours::white.withAlpha (0.4f));
-        if (nameW + 60.0f < t.getWidth())   // the category only when there is room beside the name
-            g.drawText (juce::String (proc.info.category).toUpperCase(), t, juce::Justification::centredRight);
         g.setColour (juce::Colours::white.withAlpha (0.10f));
         g.drawHorizontalLine (titleArea.getBottom() + 1, t.getX(), t.getRight());
     }
@@ -1136,29 +1260,40 @@ public:
         titleArea.removeFromRight (50);
         r.removeFromTop (4);
         if (presetBox.isVisible()) { presetBox.setBounds (r.removeFromTop (22)); r.removeFromTop (5); }
-        const int n = (int) knobs.size();
-        const int cols = juce::jlimit (2, 6, r.getWidth() / 46);
-        const int rows = juce::jmax (1, (n + cols - 1) / cols);
-        const int knobMin = 58, knobPref = 80, gap = 5;
-        int cellH, dispH = 0;
-        if (display != nullptr)
+        int cols = juce::jlimit (2, 6, r.getWidth() / 46);
+        if (sideMeter != nullptr)
         {
-            dispH = juce::jmax (52, r.getHeight() - rows * knobPref - gap);
-            dispH = juce::jmin (dispH, juce::jmax (40, r.getHeight() - rows * knobMin - gap));
-            cellH = juce::jmax (knobMin, (r.getHeight() - dispH - gap) / rows);
-            display->setBounds (r.removeFromTop (dispH));
-            r.removeFromTop (gap);
+            sideMeter->setBounds (r.removeFromRight (30));
+            r.removeFromRight (4);
+            cols = 1;
         }
-        else cellH = juce::jlimit (knobMin, 150, r.getHeight() / rows);
-        viewport.setBounds (r);
-        const bool scrolls = rows * cellH > r.getHeight();
-        const int w = r.getWidth() - (scrolls ? viewport.getScrollBarThickness() + 1 : 0);
-        grid.setSize (w, juce::jmax (r.getHeight(), rows * cellH));
-        for (size_t i = 0; i < knobs.size(); ++i)
+        if (topMeter != nullptr)
         {
-            auto cell = juce::Rectangle<int> (((int) i % cols) * (w / cols), ((int) i / cols) * cellH, w / cols, cellH).reduced (1, 1);
-            auto& k = *knobs[i];
-            if (k.toggle.isVisible()) { k.toggle.setBounds (cell.withSizeKeepingCentre (cell.getWidth(), 24)); continue; }
+            topMeter->setBounds (r.removeFromTop (18));
+            r.removeFromTop (4);
+        }
+        const int n = (int) knobs.size();
+        const int rows = juce::jmax (1, (n + cols - 1) / cols);
+        const int knobMin = 56, toggleH = 26;
+        // a row of only switches is short; the rest share the height
+        std::vector<bool> shortRow ((size_t) rows, true);
+        for (int i = 0; i < n; ++i)
+            if (! knobs[(size_t) i]->toggle.isVisible()) shortRow[(size_t) (i / cols)] = false;
+        int tall = 0, shorts = 0;
+        for (bool s : shortRow) (s ? shorts : tall)++;
+        const int cellH = tall > 0 ? juce::jlimit (knobMin, 150, (r.getHeight() - shorts * toggleH) / tall) : toggleH;
+        std::vector<int> rowY ((size_t) rows + 1, 0);
+        for (int i = 0; i < rows; ++i) rowY[(size_t) i + 1] = rowY[(size_t) i] + (shortRow[(size_t) i] ? toggleH : cellH);
+        viewport.setBounds (r);
+        const bool scrolls = rowY.back() > r.getHeight();
+        const int w = r.getWidth() - (scrolls ? viewport.getScrollBarThickness() + 1 : 0);
+        grid.setSize (w, juce::jmax (r.getHeight(), rowY.back()));
+        for (int i = 0; i < n; ++i)
+        {
+            const int row = i / cols;
+            auto cell = juce::Rectangle<int> ((i % cols) * (w / cols), rowY[(size_t) row], w / cols, rowY[(size_t) row + 1] - rowY[(size_t) row]).reduced (1, 1);
+            auto& k = *knobs[(size_t) i];
+            if (k.toggle.isVisible()) { k.toggle.setBounds (cell.withSizeKeepingCentre (cell.getWidth(), 22)); continue; }
             k.label.setBounds (cell.removeFromTop (13));
             if (k.combo.isVisible()) { k.combo.setBounds (cell.withSizeKeepingCentre (cell.getWidth(), 22)); continue; }
             k.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, juce::jmax (40, cell.getWidth() - 4), 14);
@@ -1167,8 +1302,6 @@ public:
     }
 
 private:
-    static constexpr float earW = 0.0f;
-
     struct Knob
     {
         juce::Slider slider;
@@ -1180,7 +1313,7 @@ private:
         std::unique_ptr<juce::ButtonParameterAttachment> buttonAttach;
     };
 
-    void addKnob (juce::RangedAudioParameter* rp)
+    void addKnob (juce::RangedAudioParameter* rp, juce::Colour cap = juce::Colour())
     {
         if (rp == nullptr) return;
         auto k = std::make_unique<Knob>();
@@ -1214,6 +1347,7 @@ private:
             k->slider.setColour (juce::Slider::textBoxTextColourId, juce::Colour (0xffffc46b));
             k->slider.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour (0xff060606));
             k->slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0xff3a3a3a));
+            if (! cap.isTransparent()) k->slider.getProperties().set ("cap", (int) cap.getARGB());
             k->attach = std::make_unique<juce::SliderParameterAttachment> (*rp, k->slider);
             k->slider.setDoubleClickReturnValue (true, rp->convertFrom0to1 (rp->getDefaultValue()));
             grid.addAndMakeVisible (k->slider);
@@ -1222,16 +1356,21 @@ private:
         knobs.push_back (std::move (k));
     }
 
-    void buildKnobs (int band)
+    void buildKnobs()
     {
         knobs.clear();
         grid.removeAllChildren();
-        if (eq != nullptr)   // the selected band's main controls and the output level
+        if (ssl)   // the strip's order: high, high-mid, low-mid, low, filters; each band in its own colour
         {
-            band = juce::jlimit (0, eqBandCount - 1, band);
-            for (const char* what : { "freq", "gain", "q" })
-                addKnob (dynamic_cast<juce::RangedAudioParameter*> (eq->state.getParameter (eqId (band, what))));
-            addKnob (dynamic_cast<juce::RangedAudioParameter*> (eq->state.getParameter ("out")));
+            struct Item { const char* id; juce::uint32 colour; };
+            const Item items[] = { { "hfGain", 0xffd9423a }, { "hfFreq", 0xffd9423a }, { "hfBell", 0 },
+                                   { "hmfGain", 0xff3fa66b }, { "hmfFreq", 0xff3fa66b }, { "hmfQ", 0xff3fa66b },
+                                   { "lmfGain", 0xff3b82c4 }, { "lmfFreq", 0xff3b82c4 }, { "lmfQ", 0xff3b82c4 },
+                                   { "lfGain", 0xff9a6a42 }, { "lfFreq", 0xff9a6a42 }, { "lfBell", 0 },
+                                   { "hpf", 0xff8a8a8a }, { "lpf", 0xff8a8a8a }, { "eqIn", 0 },
+                                   { "hpfOn", 0 }, { "lpfOn", 0 } };
+            for (auto& it : items)
+                addKnob (dynamic_cast<juce::RangedAudioParameter*> (proc.state.getParameter (it.id)), juce::Colour (it.colour));
         }
         else
             for (auto* p : proc.getParameters())
@@ -1258,7 +1397,7 @@ private:
         report (before, after);
     }
 
-    // every knob / graph drag is a parameter gesture: the state at its start and end is one undo step
+    // every knob drag is a parameter gesture: the state at its start and end is one undo step
     void parameterValueChanged (int, float) override {}
     void parameterGestureChanged (int, bool starting) override
     {
@@ -1276,14 +1415,13 @@ private:
 
     RackLnF lnf;   // outlives the knobs
     Base& proc;
-    Eq* eq = nullptr;
-    EqGraph* graph = nullptr;
     EditFn onEdit;
+    bool ssl = false;
     juce::Colour face;
     juce::Rectangle<int> titleArea;
     juce::ComboBox presetBox;
     juce::TextButton abA { "A" }, abB { "B" };
-    std::unique_ptr<juce::Component> display;
+    std::unique_ptr<GrBar> sideMeter, topMeter;
     juce::Viewport viewport;
     juce::Component grid;
     std::vector<std::unique_ptr<Knob>> knobs;
@@ -1299,6 +1437,7 @@ const std::vector<Info>& all()
 {
     static const std::vector<Info> list {
         { "fretforge:eq", "EQ", "EQ", "Eight-band EQ: bells, shelves, notch, band pass and low / high cuts up to 96 dB/oct. Any band can be dynamic, or spectral (dynamics frequency by frequency)." },
+        { "fretforge:ssleq", "Console EQ", "EQ", "Four-band console EQ in the style of a classic E-series channel strip: high, high-mid, low-mid and low bands (the outer ones shelf or bell), 18 dB/oct high-pass and 12 dB/oct low-pass." },
         { "fretforge:comp", "Compressor", "Dynamics", "Smooth compressor with soft knee and parallel mix." },
         { "fretforge:delay", "Delay", "Delay", "Stereo or ping-pong delay with filtered repeats." },
         { "fretforge:chorus", "Chorus", "Modulation", "Stereo chorus." },
@@ -1347,6 +1486,7 @@ std::unique_ptr<juce::AudioPluginInstance> create (const juce::String& id)
     if (i == nullptr) return nullptr;
     const juce::String s (i->id);
     if (s == "fretforge:eq") return std::make_unique<Eq> (*i);
+    if (s == "fretforge:ssleq") return std::make_unique<SslEq> (*i);
     if (s == "fretforge:comp") return std::make_unique<Compressor> (*i);
     if (s == "fretforge:delay") return std::make_unique<Delay> (*i);
     if (s == "fretforge:chorus") return std::make_unique<Chorus> (*i);
@@ -1432,9 +1572,20 @@ const std::vector<Preset>& factoryPresets (const juce::String& id)
     return id == "fretforge:eq" ? eq : none;
 }
 
+bool hasRackPanel (const juce::String& id)
+{
+    return id == "fretforge:ssleq" || id == "fretforge:comp" || id == "fretforge:limiter" || id == "fretforge:reverb"
+        || id == "fretforge:delay" || id == "fretforge:chorus";
+}
+
+bool hasRackPanelForDescription (const juce::String& descXml)
+{
+    return hasRackPanel (descXml.fromFirstOccurrenceOf (" file=\"", false, false).upToFirstOccurrenceOf ("\"", false, false));
+}
+
 std::unique_ptr<juce::Component> createRackPanel (juce::AudioPluginInstance& inst, std::function<void (const juce::MemoryBlock&, const juce::MemoryBlock&)> onEdit)
 {
-    if (auto* b = dynamic_cast<Base*> (&inst); b != nullptr && ! b->info.instrument) return std::make_unique<RackPanel> (*b, std::move (onEdit));
+    if (auto* b = dynamic_cast<Base*> (&inst); b != nullptr && hasRackPanel (b->info.id)) return std::make_unique<RackPanel> (*b, std::move (onEdit));
     return nullptr;
 }
 
