@@ -46,6 +46,7 @@ private:
         Strip (DrumMixer& o, int p) : owner (o), piece (p)
         {
             fader.setSliderStyle (juce::Slider::LinearVertical);
+            fader.setSliderSnapsToMousePosition (false);
             fader.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 18);
             fader.setRange (-60.0, 6.0, 0.1);
             fader.setSkewFactorFromMidPoint (-12.0);

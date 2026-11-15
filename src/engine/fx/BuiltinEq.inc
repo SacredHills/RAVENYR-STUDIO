@@ -631,7 +631,7 @@ public:
                 g.drawText ((db > 0 ? "+" : "") + juce::String ((int) db), juce::Rectangle<float> (r.getRight() - 28, y - 12, 26, 12),
                             juce::Justification::centredRight);
         }
-        if (! compact) paintSpectrum (g);
+        paintSpectrum (g);
 
         const auto s = eq.settings();
         const double sr = juce::jmax (44100.0, eq.getSampleRate());

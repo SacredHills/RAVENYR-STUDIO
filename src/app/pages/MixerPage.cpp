@@ -11,6 +11,7 @@ using namespace timeline;
 static void setupFader (juce::Slider& f)
 {
     f.setSliderStyle (juce::Slider::LinearVertical);
+    f.setSliderSnapsToMousePosition (false);   // a click beside the fader must not move it; grab the handle
     f.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 20);
     f.setRange (-60.0, 6.0, 0.1);
     f.setSkewFactorFromMidPoint (-12.0);
