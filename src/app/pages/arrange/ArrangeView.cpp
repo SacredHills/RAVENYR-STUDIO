@@ -1904,6 +1904,23 @@ void TimelineCanvas::drawAutomation (juce::Graphics& g)
     }
 }
 
+namespace
+{
+struct LaneClipboard { juce::String param; std::vector<automation::Point> points; };
+LaneClipboard& laneClipboard() { static LaneClipboard c; return c; }
+
+/** Writes copied points into a track's lane; values are converted through their 0..1 height, so a volume lane
+    pasted onto a pan lane (or another plugin parameter) keeps its shape. */
+void pasteLane (ArrangeView& o, juce::ValueTree track, const juce::String& prm, const LaneClipboard& c)
+{
+    auto l = automation::lane (track, prm, true, &o.doc.undo());
+    auto pts = c.points;
+    if (c.param != prm)
+        for (auto& p : pts) p.value = automation::fromNormal (prm, automation::toNormal (c.param, p.value));
+    automation::setPoints (l, pts, &o.doc.undo());
+}
+}
+
 bool TimelineCanvas::autoMouseDown (const juce::MouseEvent& e)
 {
     const int ti = owner.trackIndexAtY (e.y);
@@ -1921,9 +1938,35 @@ bool TimelineCanvas::autoMouseDown (const juce::MouseEvent& e)
         juce::PopupMenu m;
         m.addItem (1, "Delete point", hit >= 0);
         m.addItem (2, "Clear this lane", ! pts.empty());
+        m.addSeparator();
+        m.addItem (3, "Copy this lane", ! pts.empty());
+        m.addItem (4, "Paste onto this lane" + (laneClipboard().points.empty() ? juce::String() : "  (" + juce::String ((int) laneClipboard().points.size()) + " points)"),
+                   ! laneClipboard().points.empty());
+        const int others = juce::jmax (0, owner.session.selectedTracks.size() - (owner.session.isTrackSelected (t) ? 1 : 0));
+        m.addItem (5, "Copy this lane to the " + juce::String (others) + " other selected track" + (others == 1 ? "" : "s"), ! pts.empty() && others > 0);
         juce::Component::SafePointer<TimelineCanvas> safe (this);
         m.showMenuAsync (juce::PopupMenu::Options().withMousePosition(), [safe, t, prm, hit] (int r) {
             if (safe == nullptr || r == 0) return;
+            if (r >= 3)
+            {
+                auto& o = safe->owner;
+                auto src = automation::pointsOf (automation::lane (t, prm, false, nullptr));
+                if (r == 3) laneClipboard() = { prm, src };
+                else if (r == 4 && ! laneClipboard().points.empty())
+                {
+                    o.doc.undo().beginNewTransaction ("Paste automation");
+                    pasteLane (o, t, prm, laneClipboard());
+                }
+                else if (r == 5 && ! src.empty())
+                {
+                    o.doc.undo().beginNewTransaction ("Copy automation to tracks");
+                    const LaneClipboard c { prm, src };
+                    for (auto dst : o.session.selectedTracks)
+                        if (dst != t && ! isFolder (dst)) pasteLane (o, dst, prm == automation::volumeParam || prm == automation::panParam ? prm : o.laneParamFor (dst), c);
+                }
+                safe->repaint();
+                return;
+            }
             auto l = automation::lane (t, prm, false, nullptr);
             if (! l.isValid()) return;
             auto p2 = automation::pointsOf (l);
