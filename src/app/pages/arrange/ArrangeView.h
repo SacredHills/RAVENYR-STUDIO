@@ -191,7 +191,7 @@ private:
     bool autoPendingAlt = false;
     bool autoMouseDown (const juce::MouseEvent&);
     void autoMouseDrag (const juce::MouseEvent&);
-    void addAutoPoint (int trackIndex, juce::Point<float> pos, bool noSnap);
+    void addAutoPoint (int trackIndex, juce::Point<float> pos, bool noSnap, bool onLine = false);
     juce::Rectangle<float> laneRect (int trackIndex) const;
     juce::Point<float> pointPos (const juce::String& param, const automation::Point&, juce::Rectangle<float> row) const;
     int pointAt (juce::Point<float>, const std::vector<automation::Point>&, const juce::String& param, juce::Rectangle<float> row) const;

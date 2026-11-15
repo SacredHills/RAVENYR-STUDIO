@@ -1967,7 +1967,7 @@ bool TimelineCanvas::autoMouseDown (const juce::MouseEvent& e)
     return true;
 }
 
-void TimelineCanvas::addAutoPoint (int ti, juce::Point<float> pos, bool noSnap)
+void TimelineCanvas::addAutoPoint (int ti, juce::Point<float> pos, bool noSnap, bool onLine)
 {
     auto t = owner.trackAtIndex (ti);
     if (! t.isValid()) return;
@@ -1980,6 +1980,8 @@ void TimelineCanvas::addAutoPoint (int ti, juce::Point<float> pos, bool noSnap)
     automation::Point np;
     np.time = owner.geo.snap (owner.geo.timeFor (pos.x), ! noSnap);
     np.value = automation::fromNormal (prm, juce::jlimit (0.0f, 1.0f, (row.getBottom() - pos.y) / row.getHeight()));
+    if (onLine)   // a double-click: the point goes ON the line as it is now, so nothing moves until it is dragged
+        np.value = automation::valueAt (pts, np.time, automation::defaultValue (prm, t));
     if (pts.empty())   // the first point: hold the current value up to here
     {
         const float v0 = automation::defaultValue (prm, t);
@@ -2036,7 +2038,7 @@ void TimelineCanvas::mouseDoubleClick (const juce::MouseEvent& e)
         if (hit < 0)
         {
             autoPending = false;
-            addAutoPoint (ti, e.position, true);   // exactly where it was clicked (no grid snap), so it does not jump
+            addAutoPoint (ti, e.position, true, true);   // at the clicked time, on the line as it is (no snap, no jump)
             autoHoverTrack = autoTrack;            // and its value shows
             autoHoverPoint = autoPoint;
             autoLane = {};
