@@ -287,6 +287,7 @@ void TrackHeader::refreshAutomation()
     const bool a = owner.automationMode();
     laneButton.setVisible (a);
     input.setVisible (! a && isAudioTrack (track));
+    channels.setVisible (! a && isAudioTrack (track));   // the lane button takes their place
     route.setVisible (! a && ! isAudioTrack (track));
     if (a)
     {
@@ -1754,6 +1755,7 @@ void TimelineCanvas::mouseUp (const juce::MouseEvent& e)
 {
     if (autoPending) { autoPending = false; repaint(); return; }
     if (autoLane.isValid()) { autoLane = {}; autoPoint = -1; autoTrack = -1; repaint(); return; }
+    autoSuppressDrag = false;
     if (mode == Mode::marquee)
     {
         if (! dragged)
@@ -1934,6 +1936,7 @@ bool TimelineCanvas::autoMouseDown (const juce::MouseEvent& e)
         return true;
     }
     autoMoved = false;
+    autoSuppressDrag = false;
     if (hit >= 0)
     {
         owner.doc.undo().beginNewTransaction ("Move automation point");
@@ -1958,7 +1961,7 @@ bool TimelineCanvas::autoMouseDown (const juce::MouseEvent& e)
         safe->autoPending = false;
         safe->addAutoPoint (safe->autoPendingTrack, safe->autoPendingPos, safe->autoPendingAlt);
         safe->autoGrabOffset = {};
-        safe->autoMoved = true;   // already held: it follows the mouse straight away
+        safe->autoMoved = false;   // it stays where it appeared until the mouse is dragged a few pixels
     });
     repaint();
     return true;
@@ -1998,7 +2001,7 @@ void TimelineCanvas::autoMouseDrag (const juce::MouseEvent& e)
         if (e.getDistanceFromDragStart() > 4) { autoPending = false; repaint(); }   // moved before the hold: no point
         return;
     }
-    if (! autoLane.isValid() || ! juce::isPositiveAndBelow (autoPoint, (int) autoPts.size())) return;
+    if (autoSuppressDrag || ! autoLane.isValid() || ! juce::isPositiveAndBelow (autoPoint, (int) autoPts.size())) return;
     if (! autoMoved && e.getDistanceFromDragStart() < 4) return;   // a click on a point does not nudge it
     autoMoved = true;
     const auto t = owner.trackAtIndex (autoTrack);
@@ -2020,6 +2023,9 @@ void TimelineCanvas::mouseDoubleClick (const juce::MouseEvent& e)
         if (auto c = clipAt (owner, e.position); midiclip::isMidiClip (c)) { owner.openMidiEditor (c); return; }
     if (owner.automationMode())
     {
+        autoSuppressDrag = true;   // the second press of a double-click never drags a point
+        autoPending = false;
+        autoMoved = false;
         const int ti = owner.trackIndexAtY (e.y);
         auto t = owner.trackAtIndex (ti);
         if (! t.isValid()) return;

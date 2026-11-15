@@ -387,9 +387,6 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
             if (editor.isResizable() && editor.getWidth() >= minBarWidth)
             {
                 editor.setBounds (r);
-                // the plugin would not shrink that far: the window grows back to fit it instead of cutting it off
-                if (editor.getWidth() > r.getWidth() || editor.getHeight() > r.getHeight())
-                    juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<Content> (this)] { if (sp != nullptr) sp->fit(); });
             }
             else editor.setTopLeftPosition (r.getX() + juce::jmax (0, (r.getWidth() - editor.getWidth()) / 2), r.getY());
         }

@@ -178,6 +178,7 @@ private:
     // automation mode: points of the lane each track shows
     juce::ValueTree autoLane;
     int autoTrack = -1, autoPoint = -1;
+    bool autoSuppressDrag = false;
     int autoHoverTrack = -1, autoHoverPoint = -1;   // the point under the mouse (its value is shown)
     std::vector<automation::Point> autoPts;
     // a new point needs click-and-hold (autoHoldMs) without moving, so stray clicks add nothing; a double-click adds one
