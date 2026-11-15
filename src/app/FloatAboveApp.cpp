@@ -29,6 +29,21 @@ struct FloatAboveApp::Impl final : private juce::ComponentListener, private juce
     }
     ~Impl() override
     {
+        // Closing a plugin window must never take the DAW with it: let go of the owner first (so Windows does not
+        // route the closing through it), and if the main window ends up minimised by the close, bring it back
+        auto* main = mainWin().getComponent();
+        const bool mainWasMinimised = main != nullptr && main->getPeer() != nullptr && main->getPeer()->isMinimised();
+#if defined (_WIN32)
+        if (auto* p = win.getPeer()) SetWindowLongPtrW ((HWND) p->getNativeHandle(), GWLP_HWNDPARENT, 0);
+#endif
+        if (main != nullptr && ! mainWasMinimised)
+        {
+            juce::Component::SafePointer<juce::Component> sm (main);
+            juce::MessageManager::callAsync ([sm] {
+                if (sm == nullptr) return;
+                if (auto* mp = sm->getPeer(); mp != nullptr && mp->isMinimised()) { mp->setMinimised (false); sm->toFront (true); }
+            });
+        }
         juce::Desktop::getInstance().removeFocusChangeListener (this);
         win.removeComponentListener (this);
         auto& v = floaters();
