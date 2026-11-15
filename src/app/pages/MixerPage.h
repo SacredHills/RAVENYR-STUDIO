@@ -3,6 +3,7 @@
 #include "../ProjectDocument.h"
 #include "../SessionController.h"
 #include "../Widgets.h"
+#include "engine/fx/BuiltinPlugins.h"
 
 namespace ff
 {
@@ -31,6 +32,55 @@ private:
     int dropRow = -1;
     bool onBypassButton (int x) const { return x > getWidth() - 18; }
     int ampRows() const;   // 1 when the track has a NAM amp (shown first)
+};
+
+/** The rack on top of a mixer strip: one slot per plugin on the track (plus its NAM amp). Slots are collapsed rows
+    (name, bypass LED); a built-in plugin expands in place into its compact panel, one at a time, filling the rack.
+    Other plugins open their own window (the arrow). The last row adds a plugin. */
+class RackView : public juce::Component, public juce::DragAndDropTarget
+{
+public:
+    RackView (SessionController& s, juce::ValueTree t);
+    ~RackView() override;
+    static constexpr int slotH = 26;
+    void resized() override;
+    void paint (juce::Graphics&) override;
+    void tick();   // the mixer's timer: follows plugins being added / removed / loading
+    bool isInterestedInDragSource (const SourceDetails& d) override;
+    void itemDragMove (const SourceDetails& d) override;
+    void itemDragExit (const SourceDetails&) override { dropRow = -1; content.repaint(); }
+    void itemDropped (const SourceDetails& d) override;
+
+private:
+    struct Row { int kind, index, y; };   // kind: 0 NAM amp, 1 plugin, 2 "+ Add plugin"
+    struct Content final : public juce::Component
+    {
+        explicit Content (RackView& o) : owner (o) {}
+        void paint (juce::Graphics& g) override { owner.paintContent (g); }
+        void mouseDown (const juce::MouseEvent& e) override { owner.dragging = false; (void) e; }
+        void mouseDrag (const juce::MouseEvent& e) override { owner.contentDrag (e); }
+        void mouseUp (const juce::MouseEvent& e) override { owner.contentUp (e); }
+        RackView& owner;
+    };
+    SessionController& session;
+    juce::ValueTree track;
+    juce::Viewport vp;
+    Content content { *this };
+    std::vector<Row> rows;
+    juce::Rectangle<int> panelArea;
+    std::shared_ptr<juce::AudioPluginInstance> panelPlugin;   // declared before the panel: outlives it
+    std::unique_ptr<juce::Component> panel;
+    int expanded = -1, dropRow = -1;
+    bool dragging = false;
+    juce::String signature;
+    void rebuild();
+    juce::String makeSignature() const;
+    bool isBuiltIn (int index) const;
+    const Row* rowAt (int y) const;
+    void paintContent (juce::Graphics&);
+    void contentDrag (const juce::MouseEvent&);
+    void contentUp (const juce::MouseEvent&);
+    void drawRowHeader (juce::Graphics&, const Row&, int w);
 };
 
 /** A strip's sends (drag up / down for the level, click for options) and its output (click to route). */
@@ -76,7 +126,7 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void tick();
-    static constexpr int width = 104;
+    static constexpr int width = 168;   // wide enough for a rack slot (rack 168 x 588 = 2:7)
     int wantedFaderTop() const;
     int dropSide = 0;   // -1 / +1: a dragged track will land before / after this strip
     int alignTop = 0;   // set by the mixer: the lowest fader top of all strips
@@ -131,6 +181,22 @@ private:
     juce::Viewport viewport;
     juce::Component stripHolder;
     juce::OwnedArray<ChannelStrip> strips;
+    juce::OwnedArray<RackView> racks;   // one on top of each strip
+    int rackH = 588;
+    static constexpr int rackBarH = 12;
+    int stripTop() const { return rackH + rackBarH; }
+    /** The bar under all the racks: drag it to make every rack shorter or taller. Double-click: default height. */
+    struct RackDivider final : public juce::Component
+    {
+        explicit RackDivider (MixerPage& p) : page (p) { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); setRepaintsOnMouseActivity (true); }
+        void paint (juce::Graphics&) override;
+        void mouseDown (const juce::MouseEvent&) override { startH = page.rackH; }
+        void mouseDrag (const juce::MouseEvent& e) override { page.setRackHeight (startH + e.getDistanceFromDragStartY()); }
+        void mouseDoubleClick (const juce::MouseEvent&) override { page.setRackHeight (588); }
+        MixerPage& page;
+        int startH = 0;
+    } rackDivider { *this };
+    void setRackHeight (int h);
     juce::Slider fader;
     MeterView meterL, meterR;
     juce::Rectangle<int> masterBox, scale;

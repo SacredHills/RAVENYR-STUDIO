@@ -994,6 +994,172 @@ private:
     std::array<ChirpStage, 16> chirp {};
     Biquad hp, springLp;
 };
+
+/** The compact version of a built-in's editor that lives inside a mixer rack slot: preset menu and A/B, the plugin's
+    picture (EQ curve, gain reduction...) and its knobs. Sized by whoever hosts it. */
+class RackPanel final : public juce::Component
+{
+public:
+    explicit RackPanel (Base& b) : proc (b), eq (dynamic_cast<Eq*> (&b))
+    {
+        const auto& presets = factoryPresets (juce::String (b.info.id));
+        for (size_t i = 0; i < presets.size(); ++i)
+            presetBox.addItem ((presets[i].category.isNotEmpty() ? presets[i].category + ": " : juce::String()) + presets[i].name, (int) i + 1);
+        presetBox.setTextWhenNothingSelected ("Preset");
+        presetBox.onChange = [this] {
+            const auto& ps = factoryPresets (juce::String (proc.info.id));
+            const int i = presetBox.getSelectedId() - 1;
+            if (i >= 0 && i < (int) ps.size()) applyPreset (proc, ps[(size_t) i]);
+        };
+        if (presets.empty()) presetBox.setVisible (false); else addAndMakeVisible (presetBox);
+        for (auto* t : { &abA, &abB })
+        {
+            t->setClickingTogglesState (false);
+            t->setColour (juce::TextButton::buttonOnColourId, col::accent);
+            t->setColour (juce::TextButton::textColourOnId, col::bg);
+            addAndMakeVisible (*t);
+        }
+        abA.setToggleState (true, juce::dontSendNotification);
+        abA.onClick = [this] { switchTo (0); };
+        abB.onClick = [this] { switchTo (1); };
+
+        if (eq != nullptr)
+        {
+            auto g = std::make_unique<EqGraph> (*eq);
+            graph = g.get();
+            graph->onSelect = [this] (int band) { buildKnobs (band); resized(); };
+            display = std::move (g);
+        }
+        else display = b.createDisplay();
+        if (display != nullptr) addAndMakeVisible (*display);
+        viewport.setViewedComponent (&grid, false);
+        viewport.setScrollBarsShown (true, false);
+        viewport.setScrollBarThickness (5);
+        addAndMakeVisible (viewport);
+        buildKnobs (0);
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds();
+        auto top = r.removeFromTop (22);
+        abB.setBounds (top.removeFromRight (24));
+        abA.setBounds (top.removeFromRight (24));
+        top.removeFromRight (3);
+        presetBox.setBounds (top);
+        r.removeFromTop (4);
+        if (display != nullptr)
+        {
+            const int dh = eq != nullptr ? juce::jlimit (70, 170, r.getHeight() - 100)
+                                         : juce::jmin (juce::jmin (proc.displayHeight(), 110), juce::jmax (40, r.getHeight() - 90));
+            display->setBounds (r.removeFromTop (dh));
+            r.removeFromTop (4);
+        }
+        viewport.setBounds (r);
+        const int cols = 3, cellH = 76;
+        const int rows = ((int) knobs.size() + cols - 1) / cols;
+        const bool scrolls = rows * cellH > r.getHeight();
+        const int w = r.getWidth() - (scrolls ? viewport.getScrollBarThickness() + 1 : 0);
+        grid.setSize (w, rows * cellH);
+        for (size_t i = 0; i < knobs.size(); ++i)
+        {
+            auto cell = juce::Rectangle<int> (((int) i % cols) * (w / cols), ((int) i / cols) * cellH, w / cols, cellH).reduced (1, 1);
+            auto& k = *knobs[i];
+            if (k.toggle.isVisible()) { k.toggle.setBounds (cell.withSizeKeepingCentre (cell.getWidth(), 24)); continue; }
+            k.label.setBounds (cell.removeFromTop (13));
+            if (k.combo.isVisible()) k.combo.setBounds (cell.withSizeKeepingCentre (cell.getWidth(), 22));
+            else k.slider.setBounds (cell);
+        }
+    }
+
+private:
+    struct Knob
+    {
+        juce::Slider slider;
+        juce::Label label;
+        juce::TextButton toggle;
+        juce::ComboBox combo;
+        std::unique_ptr<juce::ComboBoxParameterAttachment> comboAttach;
+        std::unique_ptr<juce::SliderParameterAttachment> attach;
+        std::unique_ptr<juce::ButtonParameterAttachment> buttonAttach;
+    };
+
+    void addKnob (juce::RangedAudioParameter* rp)
+    {
+        if (rp == nullptr) return;
+        auto k = std::make_unique<Knob>();
+        k->label.setText (rp->getName (14), juce::dontSendNotification);
+        k->label.setJustificationType (juce::Justification::centred);
+        k->label.setFont (juce::Font (juce::FontOptions (10.5f)));
+        k->label.setColour (juce::Label::textColourId, col::dim);
+        if (auto* cp = dynamic_cast<juce::AudioParameterChoice*> (rp))
+        {
+            k->combo.addItemList (cp->choices, 1);
+            k->comboAttach = std::make_unique<juce::ComboBoxParameterAttachment> (*cp, k->combo);
+            grid.addAndMakeVisible (k->combo);
+            grid.addAndMakeVisible (k->label);
+        }
+        else if (auto* bp = dynamic_cast<juce::AudioParameterBool*> (rp))
+        {
+            k->toggle.setButtonText (rp->getName (14));
+            k->toggle.setClickingTogglesState (true);
+            k->toggle.setColour (juce::TextButton::buttonOnColourId, col::accent);
+            k->toggle.setColour (juce::TextButton::textColourOnId, col::bg);
+            k->buttonAttach = std::make_unique<juce::ButtonParameterAttachment> (*bp, k->toggle);
+            grid.addAndMakeVisible (k->toggle);
+        }
+        else
+        {
+            k->slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            k->slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 54, 13);
+            k->slider.setColour (juce::Slider::rotarySliderFillColourId, col::accent);
+            k->attach = std::make_unique<juce::SliderParameterAttachment> (*rp, k->slider);
+            k->slider.setDoubleClickReturnValue (true, rp->convertFrom0to1 (rp->getDefaultValue()));
+            grid.addAndMakeVisible (k->slider);
+            grid.addAndMakeVisible (k->label);
+        }
+        knobs.push_back (std::move (k));
+    }
+
+    void buildKnobs (int band)
+    {
+        knobs.clear();
+        grid.removeAllChildren();
+        if (eq != nullptr)   // the selected band's main controls and the output level
+        {
+            band = juce::jlimit (0, eqBandCount - 1, band);
+            for (const char* what : { "freq", "gain", "q" })
+                addKnob (dynamic_cast<juce::RangedAudioParameter*> (eq->state.getParameter (eqId (band, what))));
+            addKnob (dynamic_cast<juce::RangedAudioParameter*> (eq->state.getParameter ("out")));
+        }
+        else
+            for (auto* p : proc.getParameters())
+                addKnob (dynamic_cast<juce::RangedAudioParameter*> (p));
+    }
+
+    void switchTo (int which)
+    {
+        if (which == current) return;
+        proc.getStateInformation (ab[(size_t) current]);
+        if (ab[(size_t) which].getSize() == 0) ab[(size_t) which] = ab[(size_t) current];   // first visit: B starts as a copy of A
+        proc.setStateInformation (ab[(size_t) which].getData(), (int) ab[(size_t) which].getSize());
+        current = which;
+        abA.setToggleState (which == 0, juce::dontSendNotification);
+        abB.setToggleState (which == 1, juce::dontSendNotification);
+    }
+
+    Base& proc;
+    Eq* eq = nullptr;
+    EqGraph* graph = nullptr;
+    juce::ComboBox presetBox;
+    juce::TextButton abA { "A" }, abB { "B" };
+    std::unique_ptr<juce::Component> display;
+    juce::Viewport viewport;
+    juce::Component grid;
+    std::vector<std::unique_ptr<Knob>> knobs;
+    std::array<juce::MemoryBlock, 2> ab;
+    int current = 0;
+};
 } // namespace
 
 // =====================================================================================================  registry
@@ -1133,6 +1299,12 @@ const std::vector<Preset>& factoryPresets (const juce::String& id)
         eqPreset ("Effects", "AM radio", { { 6, 1200.0f, 0.0f, 0.9f }, { 4, 5000.0f, 0.0f, 0.7071f, 5 } }, 6.0f),
     };
     return id == "fretforge:eq" ? eq : none;
+}
+
+std::unique_ptr<juce::Component> createRackPanel (juce::AudioPluginInstance& inst)
+{
+    if (auto* b = dynamic_cast<Base*> (&inst); b != nullptr && ! b->info.instrument) return std::make_unique<RackPanel> (*b);
+    return nullptr;
 }
 
 bool setEqListenBand (juce::AudioPluginInstance& inst, int band)

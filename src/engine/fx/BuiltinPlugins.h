@@ -38,6 +38,10 @@ const std::vector<Preset>& factoryPresets (const juce::String& id);
 /** Applies a preset to a built-in plugin instance (false if it is not one). */
 bool applyPreset (juce::AudioPluginInstance&, const Preset&);
 
+/** The compact editor shown inside a mixer rack slot (nullptr for plugins that are not effects of ours). Sized by the host;
+    the plugin must outlive it. */
+std::unique_ptr<juce::Component> createRackPanel (juce::AudioPluginInstance&);
+
 /** The EQ's band listen (the editor's Listen button): only that band's part of the sound is heard. -1: off. */
 bool setEqListenBand (juce::AudioPluginInstance&, int band);
 

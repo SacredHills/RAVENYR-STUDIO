@@ -104,9 +104,9 @@ ChannelStrip::ChannelStrip (ProjectDocument& d, EngineHost& h, SessionController
     addAndMakeVisible (routeList);
     insertList.setTooltip ("Plugins on this track (after its NAM amp, before the fader). Click a plugin to open it, right-click for more.");
     insertView.setViewedComponent (&insertList, false);
+    insertView.setVisible (false);   // the rack above the strip shows the plugins
     insertView.setScrollBarsShown (true, false);
     insertView.setScrollBarThickness (6);
-    addAndMakeVisible (insertView);
     session.rigs().statusChanged.addChangeListener (this);
     track.addListener (this);
     refresh();
@@ -236,6 +236,276 @@ void InsertList::itemDropped (const SourceDetails& d)
     const int to = dropRow < 0 ? rig::numInserts (track) : dropRow;
     dropRow = -1;
     repaint();
+    if (parts.size() < 3) return;
+    session.dropInsert (parts[1], parts[2].getIntValue(), track, to);
+}
+
+// ------------------------------------------------------------------ rack
+
+RackView::RackView (SessionController& s, juce::ValueTree t) : session (s), track (t)
+{
+    vp.setViewedComponent (&content, false);
+    vp.setScrollBarsShown (true, false);
+    vp.setScrollBarThickness (5);
+    addAndMakeVisible (vp);
+    signature = makeSignature();
+}
+
+RackView::~RackView() { vp.setViewedComponent (nullptr, false); panel.reset(); }
+
+bool RackView::isBuiltIn (int index) const
+{
+    return rig::insertNode (track, index)[rig::ids::desc].toString().contains ("fretforge:");
+}
+
+juce::String RackView::makeSignature() const
+{
+    juce::String sig (session.trackHasRig (track) ? "A" + juce::String (session.ampBypassed (track) ? 1 : 0) : "-");
+    sig << "|" << vp.getHeight() << "|" << expanded << "|" << (session.plugins != nullptr ? 1 : 0);
+    for (int i = 0, n = rig::numInserts (track); i < n; ++i)
+    {
+        const auto node = rig::insertNode (track, i);
+        const auto st = session.rigs().insertStatus (track, i);
+        sig << "|" << node[rig::ids::name].toString() << ((bool) node[rig::ids::bypass] ? 1 : 0) << (st.loaded ? 1 : 0) << (st.loading ? 1 : 0)
+            << (st.error.isNotEmpty() ? 1 : 0) << (isBuiltIn (i) ? 1 : 0);
+    }
+    return sig;
+}
+
+void RackView::tick()
+{
+    const auto sig = makeSignature();
+    const auto plugin = (expanded >= 0 && expanded < rig::numInserts (track)) ? session.rigs().insertPlugin (track, expanded) : nullptr;
+    if (sig != signature || (expanded >= 0 && plugin != panelPlugin)) { signature = sig; rebuild(); }
+    else if (panel != nullptr) { /* the panel's own components animate themselves */ }
+    content.repaint();
+}
+
+void RackView::resized()
+{
+    vp.setBounds (getLocalBounds().reduced (2, 2));
+    rebuild();
+}
+
+void RackView::rebuild()
+{
+    const int n = rig::numInserts (track);
+    if (expanded >= n || (expanded >= 0 && ! isBuiltIn (expanded))) expanded = -1;
+    if (expanded >= 0 && ! session.rigs().insertStatus (track, expanded).loaded) { /* keep: it opens once loaded */ }
+    // the panel for the expanded slot
+    std::shared_ptr<juce::AudioPluginInstance> plugin = expanded >= 0 ? session.rigs().insertPlugin (track, expanded) : nullptr;
+    if (plugin != panelPlugin || expanded < 0)
+    {
+        if (panel != nullptr) { content.removeChildComponent (panel.get()); panel.reset(); }
+        panelPlugin = plugin;
+        if (plugin != nullptr)
+            if ((panel = ff::fx::builtin::createRackPanel (*plugin)) != nullptr) content.addAndMakeVisible (*panel);
+    }
+    rows.clear();
+    int y = 0;
+    const bool canAdd = n < rig::maxInserts && session.plugins != nullptr;
+    if (session.trackHasRig (track)) { rows.push_back ({ 0, -1, y }); y += slotH; }
+    const int collapsed = (int) rows.size() + n + (canAdd ? 1 : 0);
+    const int ph = juce::jmax (170, vp.getHeight() - collapsed * slotH - 4);
+    int panelY = -1;
+    for (int i = 0; i < n; ++i)
+    {
+        rows.push_back ({ 1, i, y });
+        y += slotH;
+        if (i == expanded && panel != nullptr) { panelY = y; y += ph + 4; }
+    }
+    if (canAdd) { rows.push_back ({ 2, -1, y }); y += slotH; }
+    const bool scrolls = y > vp.getHeight();
+    const int w = vp.getWidth() - (scrolls ? vp.getScrollBarThickness() + 1 : 0);
+    content.setSize (w, juce::jmax (y, vp.getHeight()));
+    if (panel != nullptr && panelY >= 0)
+    {
+        panelArea = { 0, panelY, w, ph };
+        panel->setBounds (panelArea.reduced (4, 4));
+    }
+    else panelArea = {};
+    content.repaint();
+}
+
+void RackView::paint (juce::Graphics& g)
+{
+    auto r = getLocalBounds().toFloat();
+    g.setColour (palette::well);
+    g.fillRoundedRectangle (r, 4.0f);
+    g.setColour (palette::outline);
+    g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.0f);
+}
+
+const RackView::Row* RackView::rowAt (int y) const
+{
+    for (auto& r : rows) if (y >= r.y && y < r.y + slotH - 2) return &r;
+    return nullptr;
+}
+
+void RackView::drawRowHeader (juce::Graphics& g, const Row& row, int w)
+{
+    auto r = juce::Rectangle<int> (0, row.y, w, slotH - 2).toFloat();
+    if (row.kind == 2)
+    {
+        g.setColour (palette::outline);
+        g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
+        g.setColour (palette::textDim);
+        g.setFont (uiFont (11.0f));
+        g.drawText ("+ Add plugin", r, juce::Justification::centred);
+        return;
+    }
+    bool bypassed, builtIn = false, isOpen = false, failed = false, loading = false, loaded = true;
+    juce::String name;
+    if (row.kind == 0)
+    {
+        bypassed = session.ampBypassed (track);
+        name = "NAM Amp";
+    }
+    else
+    {
+        const auto node = rig::insertNode (track, row.index);
+        const auto st = session.rigs().insertStatus (track, row.index);
+        bypassed = (bool) node[rig::ids::bypass];
+        name = node[rig::ids::name].toString();
+        builtIn = isBuiltIn (row.index);
+        isOpen = row.index == expanded;
+        failed = st.error.isNotEmpty();
+        loading = st.loading;
+        loaded = st.loaded;
+    }
+    const auto base = row.kind == 0 ? palette::accent : (builtIn ? palette::info : palette::panelHi);
+    g.setColour (failed ? palette::bad.withAlpha (0.25f) : base.withAlpha (isOpen ? 0.38f : (bypassed ? 0.08f : 0.22f)));
+    g.fillRoundedRectangle (r, 3.0f);
+    auto lamp = r.removeFromRight (20.0f).withSizeKeepingCentre (10.0f, 10.0f);
+    g.setColour (bypassed ? palette::well : palette::good);
+    g.fillEllipse (lamp);
+    g.setColour (bypassed ? palette::textDim : palette::good.brighter (0.3f));
+    g.drawEllipse (lamp, 1.0f);
+    if (row.kind == 1)   // open the plugin's own window
+    {
+        auto a = r.removeFromRight (20.0f).withSizeKeepingCentre (9.0f, 9.0f);
+        g.setColour (palette::textDim);
+        g.drawArrow (juce::Line<float> (a.getX(), a.getBottom(), a.getRight(), a.getY()), 1.3f, 5.0f, 5.0f);
+    }
+    auto left = r.reduced (4.0f, 0.0f);
+    if (builtIn)
+    {
+        auto c = left.removeFromLeft (14.0f).withSizeKeepingCentre (8.0f, 8.0f);
+        juce::Path tri;
+        if (isOpen) tri.addTriangle (c.getX(), c.getY() + 1.0f, c.getRight(), c.getY() + 1.0f, c.getCentreX(), c.getBottom());
+        else tri.addTriangle (c.getX() + 1.0f, c.getY(), c.getX() + 1.0f, c.getBottom(), c.getRight(), c.getCentreY());
+        g.setColour (palette::textDim);
+        g.fillPath (tri);
+    }
+    else if (row.kind == 1)
+    {
+        auto tag = left.removeFromRight (30.0f).withSizeKeepingCentre (28.0f, 12.0f);
+        g.setColour (palette::outline.brighter (0.2f));
+        g.drawRoundedRectangle (tag, 3.0f, 1.0f);
+        g.setColour (palette::textDim);
+        g.setFont (uiFont (8.5f, true));
+        g.drawText ("VST3", tag, juce::Justification::centred);
+    }
+    g.setColour (bypassed ? palette::textDim : palette::text);
+    g.setFont (uiFont (11.0f, ! bypassed));
+    g.drawText ((loading ? "... " : juce::String()) + name + (loaded || loading || row.kind == 0 ? juce::String() : " (not loaded)"),
+                left.reduced (3.0f, 0.0f), juce::Justification::centredLeft, true);
+}
+
+void RackView::paintContent (juce::Graphics& g)
+{
+    const int w = content.getWidth();
+    for (auto& row : rows) drawRowHeader (g, row, w);
+    if (! panelArea.isEmpty())
+    {
+        g.setColour (palette::panel);
+        g.fillRoundedRectangle (panelArea.toFloat().reduced (0.0f, 1.0f), 4.0f);
+        g.setColour (palette::info.withAlpha (0.45f));
+        g.drawRoundedRectangle (panelArea.toFloat().reduced (0.5f, 1.5f), 4.0f, 1.0f);
+    }
+    if (dropRow >= 0)
+    {
+        int y = 0;
+        for (auto& row : rows)
+        {
+            if (row.kind == 1 && row.index == dropRow) { y = row.y; break; }
+            if (row.kind == 2 || (row.kind == 1 && row.index == dropRow - 1)) y = row.y + slotH;
+        }
+        g.setColour (palette::accent);
+        g.fillRect (0, juce::jmax (0, y - 2), w, 2);
+    }
+    if (rig::numInserts (track) == 0 && ! session.trackHasRig (track))
+    {
+        g.setColour (palette::textDim.withAlpha (0.7f));
+        g.setFont (uiFont (10.5f));
+        g.drawFittedText ("Empty rack. Add a built-in or VST3 plugin.", juce::Rectangle<int> (6, slotH + 6, w - 12, 40), juce::Justification::centredTop, 2);
+    }
+}
+
+void RackView::contentDrag (const juce::MouseEvent& e)
+{
+    if (dragging || e.mods.isPopupMenu() || e.getDistanceFromDragStart() < 5) return;
+    const auto* row = rowAt (e.getMouseDownY());
+    if (row == nullptr || row->kind == 2) return;
+    if (auto* c = juce::DragAndDropContainer::findParentDragContainerFor (this))
+    {
+        dragging = true;
+        const auto area = juce::Rectangle<int> (0, row->y, content.getWidth(), slotH - 2);
+        const juce::Point<int> offset (-e.getMouseDownX(), -(e.getMouseDownY() - area.getY()));
+        c->startDragging (row->kind == 0 ? "ffamp|" + track[ids::id].toString()
+                                         : "ffinsert|" + track[ids::id].toString() + "|" + juce::String (row->index),
+                          this, juce::ScaledImage (content.createComponentSnapshot (area, true, 2.0f), 2.0), false, &offset);
+    }
+}
+
+void RackView::contentUp (const juce::MouseEvent& e)
+{
+    if (dragging || ! e.mouseWasClicked()) return;
+    const auto* row = rowAt (e.y);
+    if (row == nullptr) return;
+    const int w = content.getWidth();
+    const bool onLed = e.x > w - 20, onOpen = e.x > w - 40 && e.x <= w - 20;
+    if (row->kind == 2) { session.showAddInsertMenu (track, this); return; }
+    if (row->kind == 0)
+    {
+        if (e.mods.isPopupMenu()) session.showAmpMenu (track, this);
+        else if (onLed) session.toggleAmpBypass (track);
+        else if (session.onOpenRig) session.onOpenRig (track);
+        return;
+    }
+    const int i = row->index;
+    if (e.mods.isPopupMenu()) { session.showInsertMenu (track, i, this); return; }
+    if (onLed) { session.toggleInsertBypass (track, i); return; }
+    if (onOpen || ! isBuiltIn (i)) { session.openInsert (track, i); return; }
+    expanded = expanded == i ? -1 : i;   // a built-in expands in the rack (one at a time)
+    signature = makeSignature();
+    rebuild();
+    if (expanded >= 0) vp.setViewPosition (0, juce::jmax (0, row->y - 4));
+}
+
+bool RackView::isInterestedInDragSource (const SourceDetails& d)
+{
+    return d.description.toString().startsWith ("ffinsert|") || d.description.toString().startsWith ("ffamp|");
+}
+
+void RackView::itemDragMove (const SourceDetails& d)
+{
+    if (d.description.toString().startsWith ("ffamp|")) return;
+    const int y = d.localPosition.y - content.getY() - vp.getY() + vp.getViewPositionY();
+    int to = rig::numInserts (track);
+    for (auto& row : rows)
+        if (row.kind == 1 && y < row.y + slotH / 2) { to = row.index; break; }
+    dropRow = to;
+    content.repaint();
+}
+
+void RackView::itemDropped (const SourceDetails& d)
+{
+    const auto parts = juce::StringArray::fromTokens (d.description.toString(), "|", "");
+    const int to = dropRow < 0 ? rig::numInserts (track) : dropRow;
+    dropRow = -1;
+    content.repaint();
+    if (parts[0] == "ffamp") { session.dropAmp (parts[1], track, juce::ModifierKeys::currentModifiers.isShiftDown()); return; }
     if (parts.size() < 3) return;
     session.dropInsert (parts[1], parts[2].getIntValue(), track, to);
 }
@@ -525,7 +795,7 @@ void ChannelStrip::resized()
     else r.removeFromTop (6);
     // plugins take the room left above the sends and the fader (which starts where the mixer's divider is); they scroll if
     // they do not fit
-    const int insRows = insertList.rowsWanted(), routesH = routeList.rowsWanted() * RouteList::rowHeight;
+    const int insRows = 0, routesH = routeList.rowsWanted() * RouteList::rowHeight;
     const int roomBottom = juce::jmax (r.getY(), (alignTop > 0 ? alignTop : getHeight()) - 6 - routesH - (insRows > 0 ? 6 : 0));
     const int insH = juce::jmin (insRows * InsertList::rowHeight, roomBottom - r.getY());
     insertView.setBounds (r.removeFromTop (juce::jmax (0, insH)));
@@ -553,6 +823,24 @@ void MixerPage::setFaderTop (int top)
     resized();
 }
 
+void MixerPage::setRackHeight (int h)
+{
+    settings.setValue ("mixerRackH", juce::jmax (60, h));
+    resized();
+}
+
+void MixerPage::RackDivider::paint (juce::Graphics& g)
+{
+    const bool hot = isMouseOverOrDragging();
+    auto r = getLocalBounds().toFloat().reduced (0.0f, 3.0f);
+    g.setColour ((hot ? palette::accent : palette::outline.brighter (0.3f)).withAlpha (hot ? 0.9f : 0.7f));
+    g.fillRoundedRectangle (r, 2.0f);
+    g.setColour (palette::bg);
+    for (float x = 0.0f; x < (float) getWidth(); x += (float) ChannelStrip::width)   // a grip under every rack
+        for (int k = -1; k <= 1; ++k)
+            g.fillEllipse (x + (float) ChannelStrip::width * 0.5f + (float) k * 6.0f, r.getCentreY() - 1.0f, 2.0f, 2.0f);
+}
+
 void MixerPage::FaderDivider::paint (juce::Graphics& g)
 {
     const bool hot = isMouseOverOrDragging();
@@ -567,7 +855,7 @@ void MixerPage::FaderDivider::paint (juce::Graphics& g)
 
 int ChannelStrip::wantedFaderTop() const
 {
-    const int ins = insertList.rowsWanted(), routes = routeList.rowsWanted();
+    const int ins = 0, routes = routeList.rowsWanted();
     return 44 + 40 + 6 + 24 + (isInstrumentTrack (track) ? 30 : 6) + ins * InsertList::rowHeight + (ins > 0 ? 6 : 0)
            + routes * RouteList::rowHeight + 6;
 }
@@ -627,6 +915,7 @@ void MixerPage::rebind()
 
 void MixerPage::rebuild()
 {
+    racks.clear();
     strips.clear();
     int i = 0;
     for (auto t : tracksNode)
@@ -636,8 +925,10 @@ void MixerPage::rebuild()
         if (isFolder (t)) continue;   // folders only organise the arrange view
         auto* s = strips.add (new ChannelStrip (doc, host, session, t, slot));
         stripHolder.addAndMakeVisible (s);
+        stripHolder.addAndMakeVisible (racks.add (new RackView (session, t)));
     }
     stripHolder.addChildComponent (divider);
+    stripHolder.addChildComponent (rackDivider);
     emptyLabel.setVisible (strips.isEmpty());
     resized();
 }
@@ -657,6 +948,8 @@ void MixerPage::timerCallback()
     }
     for (auto* s : strips)
         s->tick();
+    for (auto* r : racks)
+        r->tick();
 }
 
 void MixerPage::paint (juce::Graphics& g)
@@ -683,16 +976,22 @@ void MixerPage::resized()
     viewport.setBounds (r);
     emptyLabel.setBounds (r);
     stripHolder.setSize (juce::jmax (r.getWidth(), strips.size() * ChannelStrip::width), r.getHeight() - viewport.getScrollBarThickness());
+    // the racks take the top of the strip area (their height is draggable); the strips below keep room for a fader
+    rackH = juce::jlimit (60, juce::jmax (60, stripHolder.getHeight() - rackBarH - 360), settings.getIntValue ("mixerRackH", 588));
+    const int stripH = stripHolder.getHeight() - stripTop();
     const int stored = settings.getIntValue ("mixerFaderTop", -1);
-    const int lowest = juce::jmax (150, stripHolder.getHeight() - 140);   // a fader is always at least ~140 px long
+    const int lowest = juce::jmax (150, stripH - 140);   // a fader is always at least ~140 px long
     faderTop = juce::jlimit (150, lowest, stored >= 0 ? stored : autoFaderTop());
     for (auto* st : strips) st->alignTop = faderTop;
     for (int i = 0; i < strips.size(); ++i)
     {
-        strips[i]->setBounds (i * ChannelStrip::width, 0, ChannelStrip::width, stripHolder.getHeight());
+        strips[i]->setBounds (i * ChannelStrip::width, stripTop(), ChannelStrip::width, stripH);
         strips[i]->resized();
+        if (i < racks.size()) racks[i]->setBounds (i * ChannelStrip::width + 4, 0, ChannelStrip::width - 8, rackH);
     }
-    divider.setBounds (0, faderTop - 9, strips.size() * ChannelStrip::width, 8);
+    rackDivider.setBounds (0, rackH, strips.size() * ChannelStrip::width, rackBarH);
+    rackDivider.setVisible (! strips.isEmpty());
+    divider.setBounds (0, stripTop() + faderTop - 9, strips.size() * ChannelStrip::width, 8);
     divider.setVisible (! strips.isEmpty());
     divider.toFront (false);
 
