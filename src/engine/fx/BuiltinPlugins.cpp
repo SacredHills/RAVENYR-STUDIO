@@ -1163,6 +1163,28 @@ struct RackLnF final : public juce::LookAndFeel_V4
     juce::Font getLabelFont (juce::Label&) override { return juce::Font (juce::FontOptions (10.0f, juce::Font::bold)); }
 };
 
+/** The rack unit's faceplate: brushed metal, bevel and the engraved name. */
+void paintRackFace (juce::Graphics& g, juce::Rectangle<int> bounds, juce::Colour face, const juce::String& name, juce::Rectangle<int> titleArea)
+{
+    const auto r = bounds.toFloat();
+    g.setGradientFill (juce::ColourGradient (face.brighter (0.12f), 0.0f, 0.0f, face.darker (0.35f), 0.0f, r.getBottom(), false));
+    g.fillRoundedRectangle (r, 3.0f);
+    g.setColour (juce::Colours::white.withAlpha (0.035f));   // brushed metal
+    for (float y = 1.0f; y < r.getBottom(); y += 3.0f) g.drawHorizontalLine ((int) y, 0.0f, r.getRight());
+    g.setColour (juce::Colours::white.withAlpha (0.22f));   // bevel
+    g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
+    g.setColour (juce::Colours::black.withAlpha (0.8f));
+    g.drawLine (1.0f, r.getBottom() - 0.5f, r.getRight() - 1.0f, r.getBottom() - 0.5f, 1.0f);
+    const auto t = titleArea.toFloat();   // engraved name
+    g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+    g.setColour (juce::Colours::black.withAlpha (0.75f));
+    g.drawText (name.toUpperCase(), t.translated (0.0f, -1.0f), juce::Justification::centredLeft);
+    g.setColour (juce::Colour (0xffe6e6e6));
+    g.drawText (name.toUpperCase(), t, juce::Justification::centredLeft);
+    g.setColour (juce::Colours::white.withAlpha (0.10f));
+    g.drawHorizontalLine (titleArea.getBottom() + 1, t.getX(), t.getRight());
+}
+
 /** The compact version of a built-in's editor that lives inside a mixer rack slot, styled as a rack unit: faceplate,
     engraved name, preset menu and A/B, and the plugin's knobs. It fills whatever size the rack gives it. Edits are
     reported (state before / after) so the host can undo them. */
@@ -1227,27 +1249,7 @@ public:
         knobs.clear();
     }
 
-    void paint (juce::Graphics& g) override
-    {
-        const auto r = getLocalBounds().toFloat();
-        g.setGradientFill (juce::ColourGradient (face.brighter (0.12f), 0.0f, 0.0f, face.darker (0.35f), 0.0f, r.getBottom(), false));
-        g.fillRoundedRectangle (r, 3.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.035f));   // brushed metal
-        for (float y = 1.0f; y < r.getBottom(); y += 3.0f) g.drawHorizontalLine ((int) y, 0.0f, r.getRight());
-        g.setColour (juce::Colours::white.withAlpha (0.22f));   // bevel
-        g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
-        g.setColour (juce::Colours::black.withAlpha (0.8f));
-        g.drawLine (1.0f, r.getBottom() - 0.5f, r.getRight() - 1.0f, r.getBottom() - 0.5f, 1.0f);
-        // engraved name
-        const auto t = titleArea.toFloat();
-        g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
-        g.setColour (juce::Colours::black.withAlpha (0.75f));
-        g.drawText (juce::String (proc.info.name).toUpperCase(), t.translated (0.0f, -1.0f), juce::Justification::centredLeft);
-        g.setColour (juce::Colour (0xffe6e6e6));
-        g.drawText (juce::String (proc.info.name).toUpperCase(), t, juce::Justification::centredLeft);
-        g.setColour (juce::Colours::white.withAlpha (0.10f));
-        g.drawHorizontalLine (titleArea.getBottom() + 1, t.getX(), t.getRight());
-    }
+    void paint (juce::Graphics& g) override { paintRackFace (g, getLocalBounds(), face, proc.info.name, titleArea); }
 
     void resized() override
     {
@@ -1429,6 +1431,342 @@ private:
     juce::MemoryBlock gestureBefore;
     int current = 0, gestureDepth = 0;
 };
+
+/** The parametric EQ as a rack unit: a slim curve (drag the dots), eight band chips and one set of knobs for the
+    selected band, so it is as narrow as the other modules. */
+class EqRackPanel final : public juce::Component, private juce::AudioProcessorParameter::Listener, private juce::Timer
+{
+public:
+    using EditFn = std::function<void (const juce::MemoryBlock&, const juce::MemoryBlock&)>;
+
+    EqRackPanel (Eq& e, EditFn onEditFn) : eq (e), onEdit (std::move (onEditFn)), body (*this)
+    {
+        const auto& presets = factoryPresets ("fretforge:eq");
+        for (size_t i = 0; i < presets.size(); ++i)
+            presetBox.addItem ((presets[i].category.isNotEmpty() ? presets[i].category + ": " : juce::String()) + presets[i].name, (int) i + 1);
+        presetBox.setTextWhenNothingSelected ("Preset");
+        presetBox.onChange = [this] {
+            const auto& ps = factoryPresets ("fretforge:eq");
+            const int i = presetBox.getSelectedId() - 1;
+            if (i < 0 || i >= (int) ps.size()) return;
+            juce::MemoryBlock before, after;
+            eq.getStateInformation (before);
+            applyPreset (eq, ps[(size_t) i]);
+            eq.getStateInformation (after);
+            report (before, after);
+        };
+        addAndMakeVisible (presetBox);
+        for (auto* t : { &abA, &abB })
+        {
+            t->setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffd8d8d8));
+            t->setColour (juce::TextButton::textColourOnId, col::bg);
+            addAndMakeVisible (*t);
+        }
+        abA.setToggleState (true, juce::dontSendNotification);
+        abA.onClick = [this] { switchTo (0); };
+        abB.onClick = [this] { switchTo (1); };
+
+        graph = std::make_unique<EqGraph> (eq);
+        graph->compact = true;
+        graph->onSelect = [this] (int b) { if (b >= 0) selectBand (b); else repaintBody(); };
+        addAndMakeVisible (*graph);
+        addAndMakeVisible (chips);
+        chips.owner = this;
+
+        viewport.setViewedComponent (&body, false);
+        viewport.setScrollBarsShown (true, false);
+        viewport.setScrollBarThickness (5);
+        addAndMakeVisible (viewport);
+        selected = 0;
+        body.build();
+        graph->select (0);
+        for (auto* p : eq.getParameters()) p->addListener (this);
+        startTimerHz (10);
+    }
+    ~EqRackPanel() override
+    {
+        stopTimer();
+        for (auto* p : eq.getParameters()) p->removeListener (this);
+        body.releaseAttachments();
+    }
+
+    void paint (juce::Graphics& g) override { paintRackFace (g, getLocalBounds(), juce::Colour (0xff1c2530), "Parametric", titleArea); }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced (7, 6);
+        auto head = r.removeFromTop (20);
+        titleArea = head;
+        abB.setBounds (head.removeFromRight (22).reduced (0, 1));
+        head.removeFromRight (2);
+        abA.setBounds (head.removeFromRight (22).reduced (0, 1));
+        titleArea.removeFromRight (50);
+        r.removeFromTop (4);
+        presetBox.setBounds (r.removeFromTop (22));
+        r.removeFromTop (5);
+        graph->setBounds (r.removeFromTop (juce::jlimit (48, 84, r.getHeight() / 7)));
+        r.removeFromTop (5);
+        chips.setBounds (r.removeFromTop (22));
+        r.removeFromTop (5);
+        viewport.setBounds (r);
+        const bool scrolls = body.minHeight() > r.getHeight();
+        const int w = r.getWidth() - (scrolls ? viewport.getScrollBarThickness() + 1 : 0);
+        body.setSize (w, juce::jmax (r.getHeight(), body.minHeight()));
+    }
+
+    void selectBand (int b)
+    {
+        if (b == selected && body.built) { repaintBody(); return; }
+        selected = juce::jlimit (0, eqBandCount - 1, b);
+        body.build();
+        chips.repaint();
+        if (graph->selected != selected) graph->select (selected);
+        body.resized();
+    }
+
+private:
+    friend struct Body;
+    void repaintBody() { chips.repaint(); body.repaint(); }
+
+    struct Chips final : public juce::Component
+    {
+        void paint (juce::Graphics& g) override
+        {
+            const auto s = owner->eq.settings();
+            const float w = (float) getWidth() / (float) eqBandCount;
+            for (int b = 0; b < eqBandCount; ++b)
+            {
+                auto r = juce::Rectangle<float> ((float) b * w + 1.0f, 1.0f, w - 2.0f, (float) getHeight() - 2.0f);
+                const auto& band = s.b[(size_t) b];
+                const bool on = band.isOn();
+                g.setColour (on ? eqBandColours[b] : (band.isUsed() ? eqBandColours[b].withAlpha (0.25f) : juce::Colour (0xff1b1b1d)));
+                g.fillRoundedRectangle (r, 3.0f);
+                if (b == owner->selected) { g.setColour (juce::Colours::white); g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.5f); }
+                g.setColour (on ? juce::Colours::black : juce::Colour (0xff7a7a7a));
+                g.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)));
+                g.drawText (juce::String (b + 1), r, juce::Justification::centred);
+            }
+        }
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            const int b = juce::jlimit (0, eqBandCount - 1, e.x * eqBandCount / juce::jmax (1, getWidth()));
+            if (! owner->eq.settings().b[(size_t) b].isUsed()) owner->addBand (b);
+            owner->selectBand (b);
+        }
+        EqRackPanel* owner = nullptr;
+    } chips;
+
+    /** The selected band's controls. */
+    struct Body final : public juce::Component
+    {
+        explicit Body (EqRackPanel& o) : owner (o) {}
+        ~Body() override { releaseAttachments(); }
+        bool built = false;
+
+        struct K { juce::Slider s; juce::Label l; std::unique_ptr<juce::SliderParameterAttachment> a; };
+        std::array<K, 7> k;   // freq, gain, q, thresh, range, speed, output
+        juce::ComboBox typeBox, slopeBox, dynBox;
+        juce::TextButton onBtn { "ON" }, listenBtn { "LISTEN" }, delBtn { "DELETE" };
+        std::unique_ptr<juce::ComboBoxParameterAttachment> typeA, slopeA, dynA;
+        std::unique_ptr<juce::ButtonParameterAttachment> onA;
+        static constexpr int rowMin = 56;
+
+        int minHeight() const { return 20 + 4 + 22 + 6 + rowMin + 4 + 22 + 6 + rowMin + 4 + rowMin + 4; }
+        void releaseAttachments() { for (auto& x : k) x.a.reset(); typeA.reset(); slopeA.reset(); dynA.reset(); onA.reset(); }
+
+        void build()
+        {
+            auto& eq = owner.eq;
+            const int b = owner.selected;
+            releaseAttachments();
+            const auto c = eqBandColours[b];
+            if (! built)
+            {
+                static const char* names[] = { "FREQ", "GAIN", "Q", "THRESH", "RANGE", "SPEED", "OUTPUT" };
+                for (size_t i = 0; i < k.size(); ++i)
+                {
+                    auto& x = k[i];
+                    x.s.setLookAndFeel (&owner.lnf);
+                    x.l.setLookAndFeel (&owner.lnf);
+                    x.s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+                    x.s.setRotaryParameters (juce::MathConstants<float>::pi * 1.2f, juce::MathConstants<float>::pi * 2.8f, true);
+                    x.s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 50, 14);
+                    x.s.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xffffb347));
+                    x.s.setColour (juce::Slider::textBoxTextColourId, juce::Colour (0xffffc46b));
+                    x.s.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour (0xff060606));
+                    x.s.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0xff3a3a3a));
+                    x.l.setText (names[i], juce::dontSendNotification);
+                    x.l.setJustificationType (juce::Justification::centred);
+                    x.l.setColour (juce::Label::textColourId, juce::Colour (0xffc8c8c8));
+                    addAndMakeVisible (x.s);
+                    addAndMakeVisible (x.l);
+                }
+                for (auto* cb : { &typeBox, &slopeBox, &dynBox }) addAndMakeVisible (*cb);
+                typeBox.addItemList (eqTypeNames, 1);
+                slopeBox.addItemList (eqSlopeNames, 1);
+                dynBox.addItemList (eqDynNames, 1);
+                onBtn.setClickingTogglesState (true);
+                onBtn.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+                addAndMakeVisible (onBtn);
+                listenBtn.setClickingTogglesState (true);
+                listenBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffd8d8d8));
+                listenBtn.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+                listenBtn.onClick = [this] { owner.eq.listenBand = listenBtn.getToggleState() ? owner.selected : -1; };
+                addAndMakeVisible (listenBtn);
+                delBtn.onClick = [this] { owner.removeBand (owner.selected); };
+                addAndMakeVisible (delBtn);
+                built = true;
+            }
+            onBtn.setColour (juce::TextButton::buttonOnColourId, c);
+            auto bind = [&] (size_t i, juce::RangedAudioParameter* p) {
+                k[i].s.getProperties().set ("cap", (int) c.getARGB());
+                k[i].a = std::make_unique<juce::SliderParameterAttachment> (*p, k[i].s);
+                k[i].s.setDoubleClickReturnValue (true, p->convertFrom0to1 (p->getDefaultValue()));
+            };
+            bind (0, eq.bandParam (b, 2)); bind (1, eq.bandParam (b, 3)); bind (2, eq.bandParam (b, 4));
+            bind (3, eq.bandParam (b, 8)); bind (4, eq.bandParam (b, 7)); bind (5, eq.bandParam (b, 10));
+            k[6].s.getProperties().remove ("cap");
+            k[6].a = std::make_unique<juce::SliderParameterAttachment> (*dynamic_cast<juce::RangedAudioParameter*> (eq.state.getParameter ("out")), k[6].s);
+            typeA = std::make_unique<juce::ComboBoxParameterAttachment> (*dynamic_cast<juce::AudioParameterChoice*> (eq.bandParam (b, 1)), typeBox);
+            slopeA = std::make_unique<juce::ComboBoxParameterAttachment> (*dynamic_cast<juce::AudioParameterChoice*> (eq.bandParam (b, 5)), slopeBox);
+            dynA = std::make_unique<juce::ComboBoxParameterAttachment> (*dynamic_cast<juce::AudioParameterChoice*> (eq.bandParam (b, 6)), dynBox);
+            onA = std::make_unique<juce::ButtonParameterAttachment> (*dynamic_cast<juce::AudioParameterBool*> (eq.bandParam (b, 0)), onBtn);
+            listenBtn.setToggleState (eq.listenBand == b, juce::dontSendNotification);
+            repaint();
+        }
+
+        void refreshEnabled()   // dim what the selected band does not use
+        {
+            const auto s = owner.eq.settings();
+            const auto& band = s.b[(size_t) owner.selected];
+            const bool gain = eqHasGain (band.typeI()), cut = eqIsCut (band.typeI());
+            const bool dyn = band.dynI() != eqDynOff;
+            k[1].s.setAlpha (gain ? 1.0f : 0.35f); k[1].l.setAlpha (gain ? 1.0f : 0.35f);
+            k[2].s.setAlpha (cut ? 0.35f : 1.0f); k[2].l.setAlpha (cut ? 0.35f : 1.0f);
+            for (size_t i : { (size_t) 3, (size_t) 4, (size_t) 5 }) { k[i].s.setAlpha (dyn ? 1.0f : 0.35f); k[i].l.setAlpha (dyn ? 1.0f : 0.35f); }
+            slopeBox.setAlpha (cut ? 1.0f : 0.35f);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)));
+            g.setColour (eqBandColours[owner.selected]);
+            g.drawText ("BAND " + juce::String (owner.selected + 1), 0, 0, getWidth() - 40, 20, juce::Justification::centredLeft);
+        }
+
+        void resized() override
+        {
+            if (! built) return;
+            auto r = getLocalBounds();
+            auto head = r.removeFromTop (20);
+            onBtn.setBounds (head.removeFromRight (34).reduced (0, 1));
+            r.removeFromTop (4);
+            typeBox.setBounds (r.removeFromTop (22));
+            r.removeFromTop (6);
+            const int knobH = juce::jlimit (rowMin, 110, (r.getHeight() - 22 - 6 - 12) / 3);
+            auto row = [&] (std::initializer_list<size_t> ks) {
+                auto cell = r.removeFromTop (knobH);
+                const int w = cell.getWidth() / 3;
+                int x = cell.getX();
+                for (size_t i : ks)
+                {
+                    auto c = juce::Rectangle<int> (x, cell.getY(), w, cell.getHeight()).reduced (1, 0);
+                    k[i].l.setBounds (c.removeFromTop (13));
+                    k[i].s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, juce::jmax (40, c.getWidth() - 4), 14);
+                    k[i].s.setBounds (c);
+                    x += w;
+                }
+            };
+            row ({ 0, 1, 2 });
+            r.removeFromTop (4);
+            auto combos = r.removeFromTop (22);
+            slopeBox.setBounds (combos.removeFromLeft (combos.getWidth() / 2 - 2));
+            combos.removeFromLeft (4);
+            dynBox.setBounds (combos);
+            r.removeFromTop (6);
+            row ({ 3, 4, 5 });
+            r.removeFromTop (4);
+            auto foot = r.removeFromTop (knobH);
+            {
+                auto c = foot.removeFromLeft (foot.getWidth() / 3).reduced (1, 0);
+                k[6].l.setBounds (c.removeFromTop (13));
+                k[6].s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, juce::jmax (40, c.getWidth() - 4), 14);
+                k[6].s.setBounds (c);
+            }
+            foot.reduce (4, juce::jmax (0, (foot.getHeight() - 52) / 2));
+            listenBtn.setBounds (foot.removeFromTop (24));
+            foot.removeFromTop (4);
+            delBtn.setBounds (foot.removeFromTop (24));
+        }
+        EqRackPanel& owner;
+    };
+
+    void addBand (int b)   // a chip for a band that does not exist yet: a bell at 1 kHz
+    {
+        juce::MemoryBlock before, after;
+        eq.getStateInformation (before);
+        auto set = [this, b] (int k, float v) { auto* p = eq.bandParam (b, k); p->setValueNotifyingHost (p->convertTo0to1 (v)); };
+        set (1, (float) eqBell); set (2, 1000.0f); set (3, 0.0f); set (4, 1.0f); set (6, 0.0f); set (0, 1.0f); set (9, 1.0f);
+        eq.getStateInformation (after);
+        report (before, after);
+    }
+    void removeBand (int b)
+    {
+        juce::MemoryBlock before, after;
+        eq.getStateInformation (before);
+        auto* p = eq.bandParam (b, 9);
+        p->setValueNotifyingHost (0.0f);
+        eq.getStateInformation (after);
+        report (before, after);
+        chips.repaint();
+    }
+    void timerCallback() override
+    {
+        if (graph->selected >= 0 && graph->selected != selected) selectBand (graph->selected);
+        body.refreshEnabled();
+        chips.repaint();
+        if (eq.listenBand != (body.listenBtn.getToggleState() ? selected : -1)) body.listenBtn.setToggleState (eq.listenBand == selected, juce::dontSendNotification);
+    }
+    void report (const juce::MemoryBlock& before, const juce::MemoryBlock& after) { if (onEdit && before != after) onEdit (before, after); }
+    void switchTo (int which)
+    {
+        if (which == current) return;
+        juce::MemoryBlock before, after;
+        eq.getStateInformation (before);
+        ab[(size_t) current] = before;
+        if (ab[(size_t) which].getSize() == 0) ab[(size_t) which] = before;
+        eq.setStateInformation (ab[(size_t) which].getData(), (int) ab[(size_t) which].getSize());
+        eq.getStateInformation (after);
+        current = which;
+        abA.setToggleState (which == 0, juce::dontSendNotification);
+        abB.setToggleState (which == 1, juce::dontSendNotification);
+        report (before, after);
+    }
+    void parameterValueChanged (int, float) override {}
+    void parameterGestureChanged (int, bool starting) override
+    {
+        if (starting) { if (gestureDepth++ == 0) eq.getStateInformation (gestureBefore); }
+        else if (gestureDepth > 0 && --gestureDepth == 0)
+        {
+            juce::MemoryBlock after;
+            eq.getStateInformation (after);
+            report (gestureBefore, after);
+        }
+    }
+
+    RackLnF lnf;   // outlives the knobs
+    Eq& eq;
+    EditFn onEdit;
+    Body body;
+    std::unique_ptr<EqGraph> graph;
+    juce::Rectangle<int> titleArea;
+    juce::ComboBox presetBox;
+    juce::TextButton abA { "A" }, abB { "B" };
+    juce::Viewport viewport;
+    std::array<juce::MemoryBlock, 2> ab;
+    juce::MemoryBlock gestureBefore;
+    int selected = 0, current = 0, gestureDepth = 0;
+};
 } // namespace
 
 // =====================================================================================================  registry
@@ -1574,7 +1912,7 @@ const std::vector<Preset>& factoryPresets (const juce::String& id)
 
 bool hasRackPanel (const juce::String& id)
 {
-    return id == "fretforge:ssleq" || id == "fretforge:comp" || id == "fretforge:limiter" || id == "fretforge:reverb"
+    return id == "fretforge:eq" || id == "fretforge:ssleq" || id == "fretforge:comp" || id == "fretforge:limiter" || id == "fretforge:reverb"
         || id == "fretforge:delay" || id == "fretforge:chorus";
 }
 
@@ -1585,6 +1923,7 @@ bool hasRackPanelForDescription (const juce::String& descXml)
 
 std::unique_ptr<juce::Component> createRackPanel (juce::AudioPluginInstance& inst, std::function<void (const juce::MemoryBlock&, const juce::MemoryBlock&)> onEdit)
 {
+    if (auto* e = dynamic_cast<Eq*> (&inst)) return std::make_unique<EqRackPanel> (*e, std::move (onEdit));
     if (auto* b = dynamic_cast<Base*> (&inst); b != nullptr && hasRackPanel (b->info.id)) return std::make_unique<RackPanel> (*b, std::move (onEdit));
     return nullptr;
 }

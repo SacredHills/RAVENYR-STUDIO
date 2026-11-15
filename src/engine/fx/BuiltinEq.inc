@@ -597,6 +597,7 @@ public:
     std::function<void()> onListenChanged;
     int selected = -1;
     bool altListening = false;
+    bool compact = false;   // the slim rack version: no axis labels, readout, spectrum or hint text
     void select (int b)
     {
         selected = b;
@@ -616,8 +617,9 @@ public:
             g.setColour (col::outline.withAlpha (f == 100.0f || f == 1000.0f || f == 10000.0f ? 0.9f : 0.45f));
             g.drawVerticalLine (juce::roundToInt (x), r.getY(), r.getBottom());
             g.setColour (col::dim);
-            g.drawText (f >= 1000.0f ? juce::String (juce::roundToInt (f / 1000.0f)) + "k" : juce::String (juce::roundToInt (f)),
-                        juce::Rectangle<float> (x + 2, r.getBottom() - 14, 30, 12), juce::Justification::centredLeft);
+            if (! compact)
+                g.drawText (f >= 1000.0f ? juce::String (juce::roundToInt (f / 1000.0f)) + "k" : juce::String (juce::roundToInt (f)),
+                            juce::Rectangle<float> (x + 2, r.getBottom() - 14, 30, 12), juce::Justification::centredLeft);
         }
         for (float db : { -30.0f, -24.0f, -18.0f, -12.0f, -6.0f, 0.0f, 6.0f, 12.0f, 18.0f, 24.0f, 30.0f })
         {
@@ -625,10 +627,11 @@ public:
             g.setColour (col::outline.withAlpha (db == 0.0f ? 1.0f : 0.4f));
             g.drawHorizontalLine (juce::roundToInt (y), r.getX(), r.getRight());
             g.setColour (col::dim);
-            g.drawText ((db > 0 ? "+" : "") + juce::String ((int) db), juce::Rectangle<float> (r.getRight() - 28, y - 12, 26, 12),
-                        juce::Justification::centredRight);
+            if (! compact)
+                g.drawText ((db > 0 ? "+" : "") + juce::String ((int) db), juce::Rectangle<float> (r.getRight() - 28, y - 12, 26, 12),
+                            juce::Justification::centredRight);
         }
-        paintSpectrum (g);
+        if (! compact) paintSpectrum (g);
 
         const auto s = eq.settings();
         const double sr = juce::jmax (44100.0, eq.getSampleRate());
@@ -743,7 +746,7 @@ public:
 
         // readout for the node under the mouse
         const int info = dragging >= 0 ? dragging : hover;
-        if (info >= 0 && s.b[(size_t) info].isUsed())
+        if (! compact && info >= 0 && s.b[(size_t) info].isUsed())
         {
             const auto& band = s.b[(size_t) info];
             juce::String t = eqTypeNames[band.typeI()] + "  " + freqText (band.freq);
@@ -761,7 +764,7 @@ public:
             g.setColour (eqBandColours[info]);
             g.drawText (t, box, juce::Justification::centred);
         }
-        if (! anyOn (s))
+        if (! compact && ! anyOn (s))
         {
             g.setColour (col::dim);
             g.setFont (juce::Font (juce::FontOptions (14.0f)));
