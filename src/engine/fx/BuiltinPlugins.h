@@ -39,8 +39,9 @@ const std::vector<Preset>& factoryPresets (const juce::String& id);
 bool applyPreset (juce::AudioPluginInstance&, const Preset&);
 
 /** The compact editor shown inside a mixer rack slot (nullptr for plugins that are not effects of ours). Sized by the host;
-    the plugin must outlive it. */
-std::unique_ptr<juce::Component> createRackPanel (juce::AudioPluginInstance&);
+    the plugin must outlive it. onEdit gets the plugin's state before and after each change (for undo). */
+std::unique_ptr<juce::Component> createRackPanel (juce::AudioPluginInstance&,
+                                                  std::function<void (const juce::MemoryBlock& before, const juce::MemoryBlock& after)> onEdit = {});
 
 /** The EQ's band listen (the editor's Listen button): only that band's part of the sound is heard. -1: off. */
 bool setEqListenBand (juce::AudioPluginInstance&, int band);

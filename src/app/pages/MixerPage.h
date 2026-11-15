@@ -46,6 +46,8 @@ public:
     void resized() override;
     void paint (juce::Graphics&) override;
     void tick();   // the mixer's timer: follows plugins being added / removed / loading
+    juce::ValueTree getTrack() const { return track; }
+    void expand (int slot) { expanded = slot; signature = {}; tick(); }
     bool isInterestedInDragSource (const SourceDetails& d) override;
     void itemDragMove (const SourceDetails& d) override;
     void itemDragExit (const SourceDetails&) override { dropRow = -1; content.repaint(); }
@@ -123,6 +125,7 @@ public:
     void mouseDoubleClick (const juce::MouseEvent&) override;
     ~ChannelStrip() override;
     void rename() { nameLabel.showEditor(); }
+    juce::ValueTree getTrack() const { return track; }
     void paint (juce::Graphics&) override;
     void resized() override;
     void tick();
@@ -205,22 +208,23 @@ private:
     std::unique_ptr<InsertList> masterInserts;   // plugins on the master bus
     int masterRows = 0;
     int faderTop = 0, lastAutoTop = -1;
+    static int widthOf (const juce::ValueTree& t);   // a strip's own width (drag its right edge)
+    /** The handle on a strip's right edge: drag to widen or narrow that one strip; double-click for the standard width. */
+    struct WidthGrip final : public juce::Component
+    {
+        WidthGrip (MixerPage& p, juce::ValueTree t) : page (p), track (t) { setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); setRepaintsOnMouseActivity (true); }
+        void paint (juce::Graphics& g) override { if (isMouseOverOrDragging()) { g.setColour (palette::accent.withAlpha (0.55f)); g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (1.5f, 0.0f), 1.5f); } }
+        void mouseDown (const juce::MouseEvent&) override { startW = MixerPage::widthOf (track); }
+        void mouseDrag (const juce::MouseEvent& e) override;
+        void mouseDoubleClick (const juce::MouseEvent&) override;
+        MixerPage& page;
+        juce::ValueTree track;
+        int startW = 0;
+    };
+    juce::OwnedArray<WidthGrip> grips;
     juce::Viewport masterInsertView;
 
-    /** The bar across all strips at the top of the faders: drag it down to shrink every fader (more room for
-        plugins), up to make them longer. Double-click: back to automatic. */
-    struct FaderDivider final : public juce::Component
-    {
-        explicit FaderDivider (MixerPage& p) : page (p) { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); setRepaintsOnMouseActivity (true); }
-        void paint (juce::Graphics&) override;
-        void mouseDown (const juce::MouseEvent&) override { startTop = page.faderTop; }
-        void mouseDrag (const juce::MouseEvent& e) override { page.setFaderTop (startTop + e.getDistanceFromDragStartY()); }
-        void mouseDoubleClick (const juce::MouseEvent&) override { page.setFaderTop (-1); }
-        MixerPage& page;
-        int startTop = 0;
-    } divider { *this };
     int autoFaderTop() const;
-    void setFaderTop (int top);   // -1: automatic (just below the tallest plugin / send list)
 
     void rebuild();
     void timerCallback() override;

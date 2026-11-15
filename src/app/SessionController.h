@@ -97,6 +97,11 @@ public:
     /** Drag of a NAM amp onto another audio track: copies the whole rig (model, cabinets, pedals, settings, plugins); move = also removes it from the source. */
     void dropAmp (const juce::String& fromTrackId, juce::ValueTree to, bool move);
     bool ampBypassed (const juce::ValueTree& track) const;
+    /** A built-in plugin was just added to a track's rack: the mixer expands it (no plugin window opens). */
+    std::function<void (juce::ValueTree track, int slot)> onBuiltInInsertAdded;
+    /** An edit made in a rack panel: its plugin's state before and after, as one undo step (edits within half a second merge). */
+    void recordPluginEdit (juce::ValueTree track, int slot, std::shared_ptr<juce::AudioPluginInstance> plugin,
+                           const juce::MemoryBlock& before, const juce::MemoryBlock& after);
     std::function<void (juce::ValueTree track)> onOpenRig;   // set by the app: shows the track's NAM window
 
     // ---- track insert plugins ----
@@ -120,6 +125,8 @@ public:
     void dropInsert (const juce::String& fromTrackId, int fromSlot, juce::ValueTree to, int toSlot);
     /** A track by id, or the master bus node for project::masterId. */
     juce::ValueTree trackOrMaster (const juce::String& id);
+    juce::uint32 lastPluginEditMs = 0;
+    const void* lastPluginEdited = nullptr;
     void openInsertWhenLoaded (juce::ValueTree track, int slot, int triesLeft);
 
     // ---- media ----

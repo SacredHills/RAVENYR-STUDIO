@@ -359,7 +359,8 @@ void SessionController::showAddInsertMenu (juce::ValueTree track, juce::Componen
         {
             const auto c = plugins->clipboard;
             doc.undo().beginNewTransaction ("Paste plugin " + c.name);
-            rig::addInsert (track, c.descXml, c.name, &doc.undo(), c.state);
+            const int at = rig::addInsert (track, c.descXml, c.name, &doc.undo(), c.state);
+            if (at >= 0 && c.descXml.contains ("fretforge:") && onBuiltInInsertAdded) onBuiltInInsertAdded (track, at);
             return;
         }
         juce::String name;
@@ -367,7 +368,9 @@ void SessionController::showAddInsertMenu (juce::ValueTree track, juce::Componen
         if (desc.isEmpty()) return;
         doc.undo().beginNewTransaction ("Add plugin " + name);
         const int slot = rig::addInsert (track, desc, name, &doc.undo());
-        if (slot >= 0) openInsertWhenLoaded (track, slot, 40);   // its window opens once it has loaded
+        if (slot < 0) return;
+        if (desc.contains ("fretforge:")) { if (onBuiltInInsertAdded) onBuiltInInsertAdded (track, slot); }   // expands in the rack
+        else openInsertWhenLoaded (track, slot, 40);   // its window opens once it has loaded
     });
 }
 
@@ -387,6 +390,42 @@ static void addMuteSoloImpl (SessionController* self, PluginManager::BypassContr
     bc.isSoloed = [track] { return (bool) track[ids::solo]; };
     bc.toggleMute = [setOnTracks, track] { setOnTracks (track, ids::mute, ! (bool) track[ids::mute], false); };
     bc.toggleSolo = [setOnTracks, track] { setOnTracks (track, ids::solo, ! (bool) track[ids::solo], false); };
+}
+
+namespace
+{
+/** A plugin's state going from one block to another; undo / redo set it back on the live plugin. */
+struct PluginStateAction final : public juce::UndoableAction
+{
+    PluginStateAction (std::weak_ptr<juce::AudioPluginInstance> p, juce::ValueTree n, juce::MemoryBlock b, juce::MemoryBlock a)
+        : plugin (std::move (p)), node (n), before (std::move (b)), after (std::move (a)) {}
+    bool perform() override { const bool fresh = first; first = false; return apply (after, ! fresh); }   // the first run is the edit itself
+    bool undo() override { return apply (before, true); }
+    int getSizeInUnits() override { return (int) (before.getSize() + after.getSize()) / 64 + 1; }
+    bool apply (const juce::MemoryBlock& m, bool bump)
+    {
+        if (bump)
+            if (auto p = plugin.lock()) p->setStateInformation (m.getData(), (int) m.getSize());
+        if (node.isValid()) node.setProperty ("rev", (int) node.getProperty ("rev", 0) + 1, nullptr);   // marks the project changed
+        return true;
+    }
+    std::weak_ptr<juce::AudioPluginInstance> plugin;
+    juce::ValueTree node;
+    juce::MemoryBlock before, after;
+    bool first = true;
+};
+}
+
+void SessionController::recordPluginEdit (juce::ValueTree track, int slot, std::shared_ptr<juce::AudioPluginInstance> plugin,
+                                          const juce::MemoryBlock& before, const juce::MemoryBlock& after)
+{
+    if (plugin == nullptr) return;
+    const auto now = juce::Time::getMillisecondCounter();
+    if (lastPluginEdited != plugin.get() || now - lastPluginEditMs > 500)
+        doc.undo().beginNewTransaction ("Edit " + rig::insertNode (track, slot)[rig::ids::name].toString());
+    lastPluginEdited = plugin.get();
+    lastPluginEditMs = now;
+    doc.undo().perform (new PluginStateAction (plugin, rig::insertNode (track, slot), before, after));
 }
 
 void SessionController::openInsert (juce::ValueTree track, int slot)

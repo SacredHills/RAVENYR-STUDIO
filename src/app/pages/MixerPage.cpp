@@ -299,14 +299,20 @@ void RackView::rebuild()
         if (panel != nullptr) { content.removeChildComponent (panel.get()); panel.reset(); }
         panelPlugin = plugin;
         if (plugin != nullptr)
-            if ((panel = ff::fx::builtin::createRackPanel (*plugin)) != nullptr) content.addAndMakeVisible (*panel);
+        {
+            const auto weak = std::weak_ptr<juce::AudioPluginInstance> (plugin);
+            panel = ff::fx::builtin::createRackPanel (*plugin, [this, weak] (const juce::MemoryBlock& before, const juce::MemoryBlock& after) {
+                if (auto p = weak.lock()) session.recordPluginEdit (track, expanded, p, before, after);
+            });
+            if (panel != nullptr) content.addAndMakeVisible (*panel);
+        }
     }
     rows.clear();
     int y = 0;
     const bool canAdd = n < rig::maxInserts && session.plugins != nullptr;
     if (session.trackHasRig (track)) { rows.push_back ({ 0, -1, y }); y += slotH; }
     const int collapsed = (int) rows.size() + n + (canAdd ? 1 : 0);
-    const int ph = juce::jmax (170, vp.getHeight() - collapsed * slotH - 4);
+    const int ph = juce::jmax (220, vp.getHeight() - collapsed * slotH - 4);   // the panel fills the rack
     int panelY = -1;
     for (int i = 0; i < n; ++i)
     {
@@ -321,7 +327,7 @@ void RackView::rebuild()
     if (panel != nullptr && panelY >= 0)
     {
         panelArea = { 0, panelY, w, ph };
-        panel->setBounds (panelArea.reduced (4, 4));
+        panel->setBounds (panelArea.reduced (0, 1));
     }
     else panelArea = {};
     content.repaint();
@@ -416,13 +422,6 @@ void RackView::paintContent (juce::Graphics& g)
 {
     const int w = content.getWidth();
     for (auto& row : rows) drawRowHeader (g, row, w);
-    if (! panelArea.isEmpty())
-    {
-        g.setColour (palette::panel);
-        g.fillRoundedRectangle (panelArea.toFloat().reduced (0.0f, 1.0f), 4.0f);
-        g.setColour (palette::info.withAlpha (0.45f));
-        g.drawRoundedRectangle (panelArea.toFloat().reduced (0.5f, 1.5f), 4.0f, 1.0f);
-    }
     if (dropRow >= 0)
     {
         int y = 0;
@@ -817,10 +816,21 @@ int MixerPage::autoFaderTop() const
     return top;
 }
 
-void MixerPage::setFaderTop (int top)
+void MixerPage::WidthGrip::mouseDrag (const juce::MouseEvent& e)
 {
-    settings.setValue ("mixerFaderTop", top < 0 ? -1 : top);
-    resized();
+    track.setProperty (ids::mixW, juce::jlimit (ChannelStrip::width, 520, startW + e.getDistanceFromDragStartX()), nullptr);
+    page.resized();
+}
+
+void MixerPage::WidthGrip::mouseDoubleClick (const juce::MouseEvent&)
+{
+    track.removeProperty (ids::mixW, nullptr);
+    page.resized();
+}
+
+int MixerPage::widthOf (const juce::ValueTree& t)
+{
+    return juce::jlimit (ChannelStrip::width, 520, (int) t.getProperty (ids::mixW, ChannelStrip::width));
 }
 
 void MixerPage::setRackHeight (int h)
@@ -836,21 +846,9 @@ void MixerPage::RackDivider::paint (juce::Graphics& g)
     g.setColour ((hot ? palette::accent : palette::outline.brighter (0.3f)).withAlpha (hot ? 0.9f : 0.7f));
     g.fillRoundedRectangle (r, 2.0f);
     g.setColour (palette::bg);
-    for (float x = 0.0f; x < (float) getWidth(); x += (float) ChannelStrip::width)   // a grip under every rack
+    for (auto* st : page.strips)   // a grip under every rack
         for (int k = -1; k <= 1; ++k)
-            g.fillEllipse (x + (float) ChannelStrip::width * 0.5f + (float) k * 6.0f, r.getCentreY() - 1.0f, 2.0f, 2.0f);
-}
-
-void MixerPage::FaderDivider::paint (juce::Graphics& g)
-{
-    const bool hot = isMouseOverOrDragging();
-    auto r = getLocalBounds().toFloat().reduced (0.0f, 2.5f);
-    g.setColour ((hot ? palette::accent : palette::outline.brighter (0.3f)).withAlpha (hot ? 0.9f : 0.7f));
-    g.fillRoundedRectangle (r, 1.5f);
-    g.setColour (palette::bg);
-    for (float x = 40.0f; x < (float) getWidth(); x += (float) ChannelStrip::width)   // a grip in every strip
-        for (int k = -1; k <= 1; ++k)
-            g.fillEllipse (x + (float) k * 6.0f + 10.0f, r.getCentreY() - 1.0f, 2.0f, 2.0f);
+            g.fillEllipse ((float) st->getBounds().getCentreX() + (float) k * 6.0f, r.getCentreY() - 1.0f, 2.0f, 2.0f);
 }
 
 int ChannelStrip::wantedFaderTop() const
@@ -889,11 +887,15 @@ MixerPage::MixerPage (EngineHost& h, ProjectDocument& d, SessionController& sc, 
     emptyLabel.setJustificationType (juce::Justification::centred);
     addChildComponent (emptyLabel);
     session.selectionChanged.addChangeListener (this);
+    session.onBuiltInInsertAdded = [this] (juce::ValueTree t, int slot) {
+        for (auto* rk : racks) if (rk->getTrack() == t) rk->expand (slot);
+    };
     rebind();
 }
 
 MixerPage::~MixerPage()
 {
+    session.onBuiltInInsertAdded = nullptr;
     session.selectionChanged.removeChangeListener (this);
     tracksNode.removeListener (this);
 }
@@ -915,6 +917,7 @@ void MixerPage::rebind()
 
 void MixerPage::rebuild()
 {
+    grips.clear();
     racks.clear();
     strips.clear();
     int i = 0;
@@ -926,9 +929,10 @@ void MixerPage::rebuild()
         auto* s = strips.add (new ChannelStrip (doc, host, session, t, slot));
         stripHolder.addAndMakeVisible (s);
         stripHolder.addAndMakeVisible (racks.add (new RackView (session, t)));
+        stripHolder.addAndMakeVisible (grips.add (new WidthGrip (*this, t)));
     }
-    stripHolder.addChildComponent (divider);
     stripHolder.addChildComponent (rackDivider);
+    for (auto* g : grips) g->toFront (false);
     emptyLabel.setVisible (strips.isEmpty());
     resized();
 }
@@ -975,25 +979,28 @@ void MixerPage::resized()
     r.removeFromRight (12);
     viewport.setBounds (r);
     emptyLabel.setBounds (r);
-    stripHolder.setSize (juce::jmax (r.getWidth(), strips.size() * ChannelStrip::width), r.getHeight() - viewport.getScrollBarThickness());
+    int totalW = 0;
+    for (auto* st : strips) totalW += widthOf (st->getTrack());
+    stripHolder.setSize (juce::jmax (r.getWidth(), totalW), r.getHeight() - viewport.getScrollBarThickness());
     // the racks take the top of the strip area (their height is draggable); the strips below keep room for a fader
     rackH = juce::jlimit (60, juce::jmax (60, stripHolder.getHeight() - rackBarH - 360), settings.getIntValue ("mixerRackH", 588));
     const int stripH = stripHolder.getHeight() - stripTop();
-    const int stored = settings.getIntValue ("mixerFaderTop", -1);
-    const int lowest = juce::jmax (150, stripH - 140);   // a fader is always at least ~140 px long
-    faderTop = juce::jlimit (150, lowest, stored >= 0 ? stored : autoFaderTop());
+    faderTop = juce::jmax (150, autoFaderTop());
+    faderTop = juce::jmin (faderTop, juce::jmax (150, stripH - 140));   // a fader is always at least ~140 px long
     for (auto* st : strips) st->alignTop = faderTop;
+    int x = 0;
     for (int i = 0; i < strips.size(); ++i)
     {
-        strips[i]->setBounds (i * ChannelStrip::width, stripTop(), ChannelStrip::width, stripH);
+        const int w = widthOf (strips[i]->getTrack());
+        strips[i]->setBounds (x, stripTop(), w, stripH);
         strips[i]->resized();
-        if (i < racks.size()) racks[i]->setBounds (i * ChannelStrip::width + 4, 0, ChannelStrip::width - 8, rackH);
+        if (i < racks.size()) racks[i]->setBounds (x + 4, 0, w - 8, rackH);
+        if (i < grips.size()) grips[i]->setBounds (x + w - 5, 0, 6, stripHolder.getHeight());
+        x += w;
     }
-    rackDivider.setBounds (0, rackH, strips.size() * ChannelStrip::width, rackBarH);
+    rackDivider.setBounds (0, rackH, x, rackBarH);
     rackDivider.setVisible (! strips.isEmpty());
-    divider.setBounds (0, stripTop() + faderTop - 9, strips.size() * ChannelStrip::width, 8);
-    divider.setVisible (! strips.isEmpty());
-    divider.toFront (false);
+    for (auto* g : grips) g->toFront (false);
 
     auto s = masterBox.reduced (12).withTrimmedTop (24).withTrimmedBottom (8);
     if (masterInserts != nullptr)

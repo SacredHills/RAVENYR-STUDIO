@@ -995,27 +995,77 @@ private:
     Biquad hp, springLp;
 };
 
-/** The compact version of a built-in's editor that lives inside a mixer rack slot: preset menu and A/B, the plugin's
-    picture (EQ curve, gain reduction...) and its knobs. Sized by whoever hosts it. */
-class RackPanel final : public juce::Component
+/** Rack-mount look for the knobs: a machined knob with a pointer and a scale of ticks around it. */
+struct RackLnF final : public juce::LookAndFeel_V4
+{
+    void drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float start, float end, juce::Slider& s) override
+    {
+        auto b = juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h).reduced (2.0f);
+        const float d = juce::jmin (b.getWidth(), b.getHeight()), r = d * 0.5f;
+        const auto c = b.getCentre();
+        auto pt = [&] (float ang, float rad) { return juce::Point<float> (c.x + rad * std::sin (ang), c.y - rad * std::cos (ang)); };
+        const auto ink = s.findColour (juce::Slider::rotarySliderFillColourId);
+        for (int i = 0; i <= 10; ++i)   // scale
+        {
+            const float a = start + (float) i / 10.0f * (end - start);
+            g.setColour (juce::Colours::white.withAlpha (i % 5 == 0 ? 0.55f : 0.28f));
+            g.drawLine (juce::Line<float> (pt (a, r * 0.84f), pt (a, r * (i % 5 == 0 ? 1.0f : 0.94f))), i % 5 == 0 ? 1.4f : 1.0f);
+        }
+        const float kr = r * 0.68f;
+        g.setColour (juce::Colours::black.withAlpha (0.55f));   // drop shadow
+        g.fillEllipse (c.x - kr, c.y - kr + 2.0f, kr * 2.0f, kr * 2.0f);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff6a6a6a), c.x - kr * 0.5f, c.y - kr * 0.7f,
+                                                 juce::Colour (0xff1c1c1c), c.x + kr * 0.6f, c.y + kr, true));
+        g.fillEllipse (c.x - kr, c.y - kr, kr * 2.0f, kr * 2.0f);
+        const float tr = kr * 0.82f;   // the knob's top
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff3a3a3a), c.x, c.y - tr, juce::Colour (0xff121212), c.x, c.y + tr, false));
+        g.fillEllipse (c.x - tr, c.y - tr, tr * 2.0f, tr * 2.0f);
+        g.setColour (juce::Colours::black);
+        g.drawEllipse (c.x - kr, c.y - kr, kr * 2.0f, kr * 2.0f, 1.0f);
+        const float ang = start + pos * (end - start);
+        g.setColour (ink);
+        g.drawLine (juce::Line<float> (pt (ang, tr * 0.25f), pt (ang, tr * 0.95f)), 2.4f);
+        juce::Path arc;   // value ring
+        arc.addCentredArc (c.x, c.y, r * 0.8f, r * 0.8f, 0.0f, start, ang, true);
+        g.setColour (ink.withAlpha (0.8f));
+        g.strokePath (arc, juce::PathStrokeType (1.6f));
+    }
+    juce::Font getLabelFont (juce::Label&) override { return juce::Font (juce::FontOptions (10.0f, juce::Font::bold)); }
+};
+
+/** The compact version of a built-in's editor that lives inside a mixer rack slot, styled as a rack unit: faceplate with
+    rack ears and screws, engraved name, preset menu and A/B, the plugin's picture (EQ curve, gain reduction...) and its
+    knobs. It fills whatever size the rack gives it. Edits are reported (state before / after) so the host can undo them. */
+class RackPanel final : public juce::Component, private juce::AudioProcessorParameter::Listener
 {
 public:
-    explicit RackPanel (Base& b) : proc (b), eq (dynamic_cast<Eq*> (&b))
+    using EditFn = std::function<void (const juce::MemoryBlock&, const juce::MemoryBlock&)>;
+
+    RackPanel (Base& b, EditFn onEditFn) : proc (b), eq (dynamic_cast<Eq*> (&b)), onEdit (std::move (onEditFn))
     {
-        const auto& presets = factoryPresets (juce::String (b.info.id));
+        const auto id = juce::String (b.info.id);
+        face = id == "fretforge:eq" ? juce::Colour (0xff1c2530) : id == "fretforge:comp" ? juce::Colour (0xff2a211f)
+             : id == "fretforge:limiter" ? juce::Colour (0xff2a1c22) : id == "fretforge:reverb" ? juce::Colour (0xff1b2926)
+             : id == "fretforge:delay" ? juce::Colour (0xff232233) : id == "fretforge:chorus" ? juce::Colour (0xff29281c) : juce::Colour (0xff202020);
+        const auto& presets = factoryPresets (id);
         for (size_t i = 0; i < presets.size(); ++i)
             presetBox.addItem ((presets[i].category.isNotEmpty() ? presets[i].category + ": " : juce::String()) + presets[i].name, (int) i + 1);
         presetBox.setTextWhenNothingSelected ("Preset");
         presetBox.onChange = [this] {
             const auto& ps = factoryPresets (juce::String (proc.info.id));
             const int i = presetBox.getSelectedId() - 1;
-            if (i >= 0 && i < (int) ps.size()) applyPreset (proc, ps[(size_t) i]);
+            if (i < 0 || i >= (int) ps.size()) return;
+            juce::MemoryBlock before, after;
+            proc.getStateInformation (before);
+            applyPreset (proc, ps[(size_t) i]);
+            proc.getStateInformation (after);
+            report (before, after);
         };
         if (presets.empty()) presetBox.setVisible (false); else addAndMakeVisible (presetBox);
         for (auto* t : { &abA, &abB })
         {
             t->setClickingTogglesState (false);
-            t->setColour (juce::TextButton::buttonOnColourId, col::accent);
+            t->setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffd8d8d8));
             t->setColour (juce::TextButton::textColourOnId, col::bg);
             addAndMakeVisible (*t);
         }
@@ -1037,42 +1087,107 @@ public:
         viewport.setScrollBarThickness (5);
         addAndMakeVisible (viewport);
         buildKnobs (0);
+        for (auto* p : proc.getParameters()) p->addListener (this);
+    }
+
+    ~RackPanel() override
+    {
+        for (auto* p : proc.getParameters()) p->removeListener (this);
+        knobs.clear();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto r = getLocalBounds().toFloat();
+        g.setGradientFill (juce::ColourGradient (face.brighter (0.12f), 0.0f, 0.0f, face.darker (0.35f), 0.0f, r.getBottom(), false));
+        g.fillRoundedRectangle (r, 3.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.035f));   // brushed metal
+        for (float y = 1.0f; y < r.getBottom(); y += 3.0f) g.drawHorizontalLine ((int) y, 0.0f, r.getRight());
+        for (int side = 0; side < 2; ++side)   // rack ears with screws
+        {
+            auto ear = juce::Rectangle<float> (side == 0 ? 0.0f : r.getRight() - earW, 0.0f, earW, r.getBottom());
+            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff4a4a4c), ear.getX(), 0.0f, juce::Colour (0xff222224), ear.getRight(), 0.0f, false));
+            g.fillRect (ear);
+            g.setColour (juce::Colours::black.withAlpha (0.6f));
+            g.drawVerticalLine ((int) (side == 0 ? ear.getRight() - 1.0f : ear.getX()), 0.0f, r.getBottom());
+            for (float sy : { 11.0f, r.getBottom() - 11.0f })
+            {
+                const auto sc = juce::Point<float> (ear.getCentreX(), sy);
+                g.setColour (juce::Colours::black.withAlpha (0.7f));
+                g.fillEllipse (sc.x - 5.0f, sc.y - 4.0f, 10.0f, 10.0f);
+                g.setGradientFill (juce::ColourGradient (juce::Colour (0xffb4b4b6), sc.x - 3.0f, sc.y - 3.0f, juce::Colour (0xff4a4a4c), sc.x + 3.0f, sc.y + 3.0f, true));
+                g.fillEllipse (sc.x - 4.0f, sc.y - 4.0f, 8.0f, 8.0f);
+                g.setColour (juce::Colours::black.withAlpha (0.8f));
+                g.drawLine (sc.x - 2.5f, sc.y + 1.5f, sc.x + 2.5f, sc.y - 1.5f, 1.3f);
+            }
+        }
+        g.setColour (juce::Colours::white.withAlpha (0.22f));   // bevel
+        g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.8f));
+        g.drawLine (1.0f, r.getBottom() - 0.5f, r.getRight() - 1.0f, r.getBottom() - 0.5f, 1.0f);
+        // engraved name
+        const auto t = titleArea.toFloat();
+        g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+        g.setColour (juce::Colours::black.withAlpha (0.75f));
+        g.drawText (juce::String (proc.info.name).toUpperCase(), t.translated (0.0f, -1.0f), juce::Justification::centredLeft);
+        g.setColour (juce::Colour (0xffe6e6e6));
+        g.drawText (juce::String (proc.info.name).toUpperCase(), t, juce::Justification::centredLeft);
+        juce::GlyphArrangement ga;
+        ga.addLineOfText (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)), juce::String (proc.info.name).toUpperCase(), 0.0f, 0.0f);
+        const float nameW = ga.getBoundingBox (0, -1, true).getWidth();
+        g.setFont (juce::Font (juce::FontOptions (8.5f)));
+        g.setColour (juce::Colours::white.withAlpha (0.4f));
+        if (nameW + 60.0f < t.getWidth())   // the category only when there is room beside the name
+            g.drawText (juce::String (proc.info.category).toUpperCase(), t, juce::Justification::centredRight);
+        g.setColour (juce::Colours::white.withAlpha (0.10f));
+        g.drawHorizontalLine (titleArea.getBottom() + 1, t.getX(), t.getRight());
     }
 
     void resized() override
     {
-        auto r = getLocalBounds();
+        auto r = getLocalBounds().reduced ((int) earW + 4, 5);
+        titleArea = r.removeFromTop (18);
+        r.removeFromTop (4);
         auto top = r.removeFromTop (22);
-        abB.setBounds (top.removeFromRight (24));
-        abA.setBounds (top.removeFromRight (24));
+        abB.setBounds (top.removeFromRight (22));
+        top.removeFromRight (2);
+        abA.setBounds (top.removeFromRight (22));
         top.removeFromRight (3);
         presetBox.setBounds (top);
-        r.removeFromTop (4);
+        r.removeFromTop (5);
+        const int n = (int) knobs.size();
+        const int cols = juce::jlimit (2, 6, r.getWidth() / 62);
+        const int rows = juce::jmax (1, (n + cols - 1) / cols);
+        const int knobMin = 66, knobPref = 92, gap = 6;
+        int cellH, dispH = 0;
         if (display != nullptr)
         {
-            const int dh = eq != nullptr ? juce::jlimit (70, 170, r.getHeight() - 100)
-                                         : juce::jmin (juce::jmin (proc.displayHeight(), 110), juce::jmax (40, r.getHeight() - 90));
-            display->setBounds (r.removeFromTop (dh));
-            r.removeFromTop (4);
+            dispH = juce::jmax (60, r.getHeight() - rows * knobPref - gap);
+            dispH = juce::jmin (dispH, juce::jmax (40, r.getHeight() - rows * knobMin - gap));
+            cellH = juce::jmax (knobMin, (r.getHeight() - dispH - gap) / rows);
+            display->setBounds (r.removeFromTop (dispH));
+            r.removeFromTop (gap);
         }
+        else cellH = juce::jlimit (knobMin, 150, r.getHeight() / rows);
         viewport.setBounds (r);
-        const int cols = 3, cellH = 76;
-        const int rows = ((int) knobs.size() + cols - 1) / cols;
         const bool scrolls = rows * cellH > r.getHeight();
         const int w = r.getWidth() - (scrolls ? viewport.getScrollBarThickness() + 1 : 0);
-        grid.setSize (w, rows * cellH);
+        grid.setSize (w, juce::jmax (r.getHeight(), rows * cellH));
         for (size_t i = 0; i < knobs.size(); ++i)
         {
             auto cell = juce::Rectangle<int> (((int) i % cols) * (w / cols), ((int) i / cols) * cellH, w / cols, cellH).reduced (1, 1);
             auto& k = *knobs[i];
             if (k.toggle.isVisible()) { k.toggle.setBounds (cell.withSizeKeepingCentre (cell.getWidth(), 24)); continue; }
             k.label.setBounds (cell.removeFromTop (13));
-            if (k.combo.isVisible()) k.combo.setBounds (cell.withSizeKeepingCentre (cell.getWidth(), 22));
-            else k.slider.setBounds (cell);
+            if (k.combo.isVisible()) { k.combo.setBounds (cell.withSizeKeepingCentre (cell.getWidth(), 22)); continue; }
+            k.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, juce::jmax (40, cell.getWidth() - 4), 14);
+            k.slider.setBounds (cell);
         }
     }
 
 private:
+    static constexpr float earW = 14.0f;
+
     struct Knob
     {
         juce::Slider slider;
@@ -1088,10 +1203,10 @@ private:
     {
         if (rp == nullptr) return;
         auto k = std::make_unique<Knob>();
-        k->label.setText (rp->getName (14), juce::dontSendNotification);
+        k->label.setText (rp->getName (14).toUpperCase(), juce::dontSendNotification);
         k->label.setJustificationType (juce::Justification::centred);
-        k->label.setFont (juce::Font (juce::FontOptions (10.5f)));
-        k->label.setColour (juce::Label::textColourId, col::dim);
+        k->label.setColour (juce::Label::textColourId, juce::Colour (0xffc8c8c8));
+        k->label.setLookAndFeel (&lnf);
         if (auto* cp = dynamic_cast<juce::AudioParameterChoice*> (rp))
         {
             k->combo.addItemList (cp->choices, 1);
@@ -1103,16 +1218,21 @@ private:
         {
             k->toggle.setButtonText (rp->getName (14));
             k->toggle.setClickingTogglesState (true);
-            k->toggle.setColour (juce::TextButton::buttonOnColourId, col::accent);
+            k->toggle.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffd8d8d8));
             k->toggle.setColour (juce::TextButton::textColourOnId, col::bg);
             k->buttonAttach = std::make_unique<juce::ButtonParameterAttachment> (*bp, k->toggle);
             grid.addAndMakeVisible (k->toggle);
         }
         else
         {
+            k->slider.setLookAndFeel (&lnf);
             k->slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-            k->slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 54, 13);
-            k->slider.setColour (juce::Slider::rotarySliderFillColourId, col::accent);
+            k->slider.setRotaryParameters (juce::MathConstants<float>::pi * 1.2f, juce::MathConstants<float>::pi * 2.8f, true);
+            k->slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 54, 14);
+            k->slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xffffb347));
+            k->slider.setColour (juce::Slider::textBoxTextColourId, juce::Colour (0xffffc46b));
+            k->slider.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour (0xff060606));
+            k->slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0xff3a3a3a));
             k->attach = std::make_unique<juce::SliderParameterAttachment> (*rp, k->slider);
             k->slider.setDoubleClickReturnValue (true, rp->convertFrom0to1 (rp->getDefaultValue()));
             grid.addAndMakeVisible (k->slider);
@@ -1137,20 +1257,49 @@ private:
                 addKnob (dynamic_cast<juce::RangedAudioParameter*> (p));
     }
 
+    void report (const juce::MemoryBlock& before, const juce::MemoryBlock& after)
+    {
+        if (onEdit && before != after) onEdit (before, after);
+    }
+
     void switchTo (int which)
     {
         if (which == current) return;
-        proc.getStateInformation (ab[(size_t) current]);
-        if (ab[(size_t) which].getSize() == 0) ab[(size_t) which] = ab[(size_t) current];   // first visit: B starts as a copy of A
+        juce::MemoryBlock before, after;
+        proc.getStateInformation (before);
+        ab[(size_t) current] = before;
+        if (ab[(size_t) which].getSize() == 0) ab[(size_t) which] = before;   // first visit: B starts as a copy of A
         proc.setStateInformation (ab[(size_t) which].getData(), (int) ab[(size_t) which].getSize());
+        proc.getStateInformation (after);
         current = which;
         abA.setToggleState (which == 0, juce::dontSendNotification);
         abB.setToggleState (which == 1, juce::dontSendNotification);
+        report (before, after);
     }
 
+    // every knob / graph drag is a parameter gesture: the state at its start and end is one undo step
+    void parameterValueChanged (int, float) override {}
+    void parameterGestureChanged (int, bool starting) override
+    {
+        if (starting)
+        {
+            if (gestureDepth++ == 0) proc.getStateInformation (gestureBefore);
+        }
+        else if (gestureDepth > 0 && --gestureDepth == 0)
+        {
+            juce::MemoryBlock after;
+            proc.getStateInformation (after);
+            report (gestureBefore, after);
+        }
+    }
+
+    RackLnF lnf;   // outlives the knobs
     Base& proc;
     Eq* eq = nullptr;
     EqGraph* graph = nullptr;
+    EditFn onEdit;
+    juce::Colour face;
+    juce::Rectangle<int> titleArea;
     juce::ComboBox presetBox;
     juce::TextButton abA { "A" }, abB { "B" };
     std::unique_ptr<juce::Component> display;
@@ -1158,7 +1307,8 @@ private:
     juce::Component grid;
     std::vector<std::unique_ptr<Knob>> knobs;
     std::array<juce::MemoryBlock, 2> ab;
-    int current = 0;
+    juce::MemoryBlock gestureBefore;
+    int current = 0, gestureDepth = 0;
 };
 } // namespace
 
@@ -1301,9 +1451,9 @@ const std::vector<Preset>& factoryPresets (const juce::String& id)
     return id == "fretforge:eq" ? eq : none;
 }
 
-std::unique_ptr<juce::Component> createRackPanel (juce::AudioPluginInstance& inst)
+std::unique_ptr<juce::Component> createRackPanel (juce::AudioPluginInstance& inst, std::function<void (const juce::MemoryBlock&, const juce::MemoryBlock&)> onEdit)
 {
-    if (auto* b = dynamic_cast<Base*> (&inst); b != nullptr && ! b->info.instrument) return std::make_unique<RackPanel> (*b);
+    if (auto* b = dynamic_cast<Base*> (&inst); b != nullptr && ! b->info.instrument) return std::make_unique<RackPanel> (*b, std::move (onEdit));
     return nullptr;
 }
 
