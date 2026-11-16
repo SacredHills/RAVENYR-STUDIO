@@ -91,6 +91,8 @@ public:
     void captureAllPluginStates (bool onlyChanged = false);
     /** Tries again to load every plugin that failed to load (e.g. after it was re-enabled). */
     void retryFailedPlugins();
+    /** A project load can fail while the machine is busy; try the failed amp models, cabinets and plugins again a couple of times. */
+    int autoRetriesLeft = 0;
 
     std::function<void (juce::AudioPluginInstance*)> onPluginRemoved;   // close its editor window before it is deleted
     std::function<void()> onRigsChanged;    // a track rig was created or removed (rebuild the playback graph)

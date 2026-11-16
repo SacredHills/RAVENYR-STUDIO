@@ -245,6 +245,8 @@ void InsertList::itemDropped (const SourceDetails& d)
 
 RackView::RackView (SessionController& s, juce::ValueTree t) : session (s), track (t)
 {
+    for (int i = 0; i < rig::numInserts (track); ++i)   // the module that was open when the project was saved
+        if ((int) rig::insertNode (track, i).getProperty (timeline::ids::rackOpen, 0) == 1) { expandedNode = rig::insertNode (track, i); break; }
     vp.setViewedComponent (&content, false);
     vp.setScrollBarsShown (true, false);
     vp.setScrollBarThickness (5);
@@ -315,6 +317,9 @@ void RackView::rebuild()
         if (rig::insertNode (track, i) == expandedNode) expanded = i;
     if (expanded < 0 || ! isBuiltIn (expanded)) { expanded = -1; expandedNode = {}; }
     if (expanded >= 0 && ! session.rigs().insertStatus (track, expanded).loaded) { /* keep: it opens once loaded */ }
+    for (int i = 0; i < n; ++i)   // saved with the project, so it comes back open
+        if (auto node = rig::insertNode (track, i); node.isValid() && (int) node.getProperty (timeline::ids::rackOpen, 0) != (i == expanded ? 1 : 0))
+            session.projectDoc().setUiProperty (node, timeline::ids::rackOpen, i == expanded ? 1 : 0);
     // the panel for the expanded slot
     std::shared_ptr<juce::AudioPluginInstance> plugin = expanded >= 0 ? session.rigs().insertPlugin (track, expanded) : nullptr;
     if (plugin != panelPlugin || expanded < 0)

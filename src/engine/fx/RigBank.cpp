@@ -227,6 +227,7 @@ void RigBank::rebind (juce::ValueTree projectRoot)
     root.removeListener (this);
     root = projectRoot;
     root.addListener (this);
+    autoRetriesLeft = 3;
     syncAll();
 }
 
@@ -986,6 +987,25 @@ void RigBank::timerCallback()
     };
     service (liveEntry);
     for (auto& [id, e] : tracks) service (e);
+    if (ticks % 15 == 14 && autoRetriesLeft > 0)   // every 1.5 s: anything that did not come up after a project load gets another go
+    {
+        bool tried = false;
+        auto heal = [&] (Entry& e) {
+            auto& st = e.status;
+            if (st.modelPath.isNotEmpty() && ! st.modelLoaded && ! st.modelLoading) { requestModel (e, false); tried = true; }
+            if (st.irPath.isNotEmpty() && ! st.irLoaded && ! st.irLoading) { requestIr (e, false); tried = true; }
+            if (st.irPath2.isNotEmpty() && ! st.irLoaded2 && ! st.irLoading2) { requestIr (e, true); tried = true; }
+        };
+        heal (liveEntry);
+        for (auto& [id, e] : tracks) heal (e);
+        bool pluginFailed = false;
+        auto chk = [&] (const Entry& e) { for (auto& p : e.status.plugins) if (p.error.isNotEmpty()) pluginFailed = true; };
+        chk (liveEntry);
+        for (auto& [id, e] : tracks) chk (e);
+        for (auto& [id, e] : inserts) for (auto& p : e.status) if (p.error.isNotEmpty()) pluginFailed = true;
+        if (pluginFailed) { retryFailedPlugins(); tried = true; }
+        if (tried) --autoRetriesLeft; else autoRetriesLeft = 0;
+    }
     if (++ticks % 20 == 0) captureAllPluginStates (true);   // only plugins that reported a change
 }
 

@@ -17,6 +17,7 @@ class SessionController : private juce::ValueTree::Listener, private juce::Async
 {
 public:
     SessionController (EngineHost&, ProjectDocument&, juce::PropertiesFile&);
+    ProjectDocument& projectDoc() { return doc; }
     ~SessionController() override;
 
     AudioCache cache;

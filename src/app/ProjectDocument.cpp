@@ -311,6 +311,7 @@ void ProjectDocument::markDirty()
 
 void ProjectDocument::valueTreePropertyChanged (juce::ValueTree& node, const juce::Identifier& id)
 {
+    if (silentUi) return;
     if (node.getType() == ids::TRANSPORT || node.getType() == ids::TEMPO)
         tempoEdited();
     else if (node.getType() == ids::METRONOME)

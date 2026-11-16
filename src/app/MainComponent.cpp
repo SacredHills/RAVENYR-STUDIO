@@ -129,6 +129,7 @@ MainComponent::MainComponent (juce::PropertiesFile& s) : settings (s)
         drumPage->rebind();
         effectsPage->rebind();
         metronomePanel->rebind();
+        if (const auto pg = doc->tree().getProperty (timeline::ids::uiPage); pg.isInt() && (int) pg >= 0 && (int) pg < pages.size()) showSection ((int) pg);
     };
     transport->onRecord = [this] { session->toggleRecord(); };
     transport->onOpenTuner = [this] { openTuner(); };
@@ -243,6 +244,7 @@ void MainComponent::showSection (int index)
     if (trainingPage != nullptr) trainingPage->setActive (index == trainingSection);
     if (effectsPage != nullptr) effectsPage->setActive (index == effectsSection);
     currentSection = index;
+    if (doc != nullptr) doc->setUiProperty (doc->tree(), timeline::ids::uiPage, index);   // reopens on this page
     nav.selected = index;
     nav.repaint();
     for (int i = 0; i < pages.size(); ++i)

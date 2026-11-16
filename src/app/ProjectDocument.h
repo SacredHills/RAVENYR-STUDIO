@@ -27,6 +27,11 @@ public:
     juce::ValueTree tracks() { return root.getChildWithName (project::ids::TRACKS); }
     juce::ValueTree markers() { return root.getChildWithName (project::ids::MARKERS); }
     bool isDirty() const { return dirty; }
+    /** View state saved with the project (last page, open rack modules): set without marking the project changed. */
+    void setUiProperty (juce::ValueTree node, const juce::Identifier& id, const juce::var& v)
+    {
+        if (node.isValid() && node[id] != v) { silentUi = true; node.setProperty (id, v, nullptr); silentUi = false; }
+    }
     juce::String displayName() const;
 
     /** Re-sends tempo, meter, metronome and loop settings to the engine (after a temporary override). */
@@ -81,6 +86,7 @@ private:
     juce::UndoManager undoManager { 0, 60 };
     juce::File bundle;
     bool dirty = false;
+    bool silentUi = false;
     bool autosaveDirty = false;
     int autosaveSeconds = 120;
     juce::Time lastAutosaveTime;
