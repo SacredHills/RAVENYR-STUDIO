@@ -433,14 +433,12 @@ void AmpRig::runCab (float* x, int n) noexcept
         float* t2 = tmp.data();
         if (blend) std::copy (x, x + n, t2);
         convolution->process (juce::dsp::ProcessContextReplacing<float> (blk));
-        irSizeSeen.store (convolution->getCurrentIRSize(), std::memory_order_relaxed);
         if (getParam (cabPhase1) >= 0.5f) juce::FloatVectorOperations::negate (x, x, n);
         if (blend)
         {
             float* ch2[1] = { t2 };
             juce::dsp::AudioBlock<float> blk2 (ch2, 1, (size_t) n);
             convolution2->process (juce::dsp::ProcessContextReplacing<float> (blk2));
-            irSizeSeen2.store (convolution2->getCurrentIRSize(), std::memory_order_relaxed);
             const float b = juce::jlimit (0.0f, 1.0f, getParam (cabBlend));   // equal power
             const float ga = std::cos (b * juce::MathConstants<float>::halfPi), gb = std::sin (b * juce::MathConstants<float>::halfPi);
             const float gb2 = getParam (cabPhase2) >= 0.5f ? -gb : gb;

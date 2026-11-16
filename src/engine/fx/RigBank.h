@@ -91,8 +91,6 @@ public:
     void captureAllPluginStates (bool onlyChanged = false);
     /** Tries again to load every plugin that failed to load (e.g. after it was re-enabled). */
     void retryFailedPlugins();
-    /** A project load can fail while the machine is busy; try the failed amp models, cabinets and plugins again a couple of times. */
-    int autoRetriesLeft = 0;
 
     std::function<void (juce::AudioPluginInstance*)> onPluginRemoved;   // close its editor window before it is deleted
     std::function<void()> onRigsChanged;    // a track rig was created or removed (rebuild the playback graph)
@@ -108,7 +106,6 @@ private:
         Status status;
         int generation = 0;
         std::array<int, rig::numPluginSlots> pluginGeneration {};
-        int irStuck = 0, irStuck2 = 0, irResends = 0, irResends2 = 0;   // cab IR that is loaded but never reached the convolution
     };
 
     struct InsertEntry

@@ -227,7 +227,6 @@ void RigBank::rebind (juce::ValueTree projectRoot)
     root.removeListener (this);
     root = projectRoot;
     root.addListener (this);
-    autoRetriesLeft = 3;
     syncAll();
 }
 
@@ -498,8 +497,8 @@ void RigBank::syncEntry (Entry& e)
         engine.liveInput.store ((int) live.getProperty (rig::ids::input, -1));
     }
     if (e.tree[rig::ids::namFile].toString() != e.status.modelPath) requestModel (e, false);
-    if (e.tree[rig::ids::irFile].toString() != e.status.irPath) { e.irResends = 0; requestIr (e, false); }
-    if (e.tree[rig::ids::irFile2].toString() != e.status.irPath2) { e.irResends2 = 0; requestIr (e, true); }
+    if (e.tree[rig::ids::irFile].toString() != e.status.irPath) requestIr (e, false);
+    if (e.tree[rig::ids::irFile2].toString() != e.status.irPath2) requestIr (e, true);
     for (int sl = 0; sl < rig::numPluginSlots; ++sl)
     {
         const auto node = rig::pluginNode (e.tree, sl);
@@ -929,7 +928,6 @@ void RigBank::requestIr (Entry& e, bool second)
     auto& loading = second ? st.irLoading2 : st.irLoading;
     auto& name = second ? st.irName2 : st.irName;
     statusPath = path;
-    (second ? e.rig->irSizeSeen2 : e.rig->irSizeSeen).store (-1);
     error = {};
     loaded = false;
     name = {};
@@ -980,18 +978,6 @@ void RigBank::timerCallback()
 {
     auto service = [this] (Entry& e) {
         e.rig->collectGarbage();
-        // A cab that shows as loaded but whose convolution still runs JUCE's default unit impulse (the load command was lost
-        // on the way to its background thread): the cab does nothing. Send it again.
-        auto watch = [this, &e] (bool second) {
-            auto& stuck = second ? e.irStuck2 : e.irStuck;
-            auto& resends = second ? e.irResends2 : e.irResends;
-            const bool loaded = second ? e.status.irLoaded2 : e.status.irLoaded;
-            const int seen = (second ? e.rig->irSizeSeen2 : e.rig->irSizeSeen).load();
-            if (loaded && seen >= 0 && seen <= 1) ++stuck; else stuck = 0;
-            if (stuck > 20 && resends < 4) { stuck = 0; ++resends; requestIr (e, second); }
-        };
-        watch (false);
-        watch (true);
         if (e.rig->modelNeedsPrepare.load() && ! e.status.modelLoading && e.status.modelPath.isNotEmpty())
         {
             e.rig->modelNeedsPrepare = false;
@@ -1000,25 +986,6 @@ void RigBank::timerCallback()
     };
     service (liveEntry);
     for (auto& [id, e] : tracks) service (e);
-    if (ticks % 15 == 14 && autoRetriesLeft > 0)   // every 1.5 s: anything that did not come up after a project load gets another go
-    {
-        bool tried = false;
-        auto heal = [&] (Entry& e) {
-            auto& st = e.status;
-            if (st.modelPath.isNotEmpty() && ! st.modelLoaded && ! st.modelLoading) { requestModel (e, false); tried = true; }
-            if (st.irPath.isNotEmpty() && ! st.irLoaded && ! st.irLoading) { requestIr (e, false); tried = true; }
-            if (st.irPath2.isNotEmpty() && ! st.irLoaded2 && ! st.irLoading2) { requestIr (e, true); tried = true; }
-        };
-        heal (liveEntry);
-        for (auto& [id, e] : tracks) heal (e);
-        bool pluginFailed = false;
-        auto chk = [&] (const Entry& e) { for (auto& p : e.status.plugins) if (p.error.isNotEmpty()) pluginFailed = true; };
-        chk (liveEntry);
-        for (auto& [id, e] : tracks) chk (e);
-        for (auto& [id, e] : inserts) for (auto& p : e.status) if (p.error.isNotEmpty()) pluginFailed = true;
-        if (pluginFailed) { retryFailedPlugins(); tried = true; }
-        if (tried) --autoRetriesLeft; else autoRetriesLeft = 0;
-    }
     if (++ticks % 20 == 0) captureAllPluginStates (true);   // only plugins that reported a change
 }
 
