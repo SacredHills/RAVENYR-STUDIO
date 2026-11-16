@@ -682,10 +682,12 @@ void ChannelStrip::mouseDown (const juce::MouseEvent& e)
 {
     if (e.mods.isPopupMenu())
     {
+        session.markMixerSelect();
         if (! session.isTrackSelected (track)) session.clickTrack (track, {});
         showMenu();
         return;
     }
+    session.markMixerSelect();
     session.clickTrack (track, e.mods); // click the strip (name area / background) to select; Shift/Ctrl extend
 }
 
@@ -695,6 +697,7 @@ void ChannelStrip::mouseDrag (const juce::MouseEvent& e)
     if (auto* c = juce::DragAndDropContainer::findParentDragContainerFor (this))
     {
         trackDragging = true;
+        session.markMixerSelect();
         if (! session.isTrackSelected (track)) session.clickTrack (track, {});
         c->startDragging ("fftrack|" + track[ids::id].toString(), this,
                           juce::ScaledImage (createComponentSnapshot (getLocalBounds(), true, 1.0f), 1.0), false);
@@ -927,10 +930,11 @@ MiniMixer::MiniMixer (ProjectDocument& d, EngineHost& h, SessionController& sc, 
 
 void MiniMixer::changeListenerCallback (juce::ChangeBroadcaster*)
 {
+    const bool scroll = ! session.selectionCameFromMixer();   // only a selection made in the editor moves the mixer
     for (auto* s : strips)
     {
         s->repaint();
-        if (session.isTrackSelected (s->getTrack())) view.setViewPosition (juce::jlimit (0, juce::jmax (0, holder.getWidth() - view.getWidth()), s->getX() - (view.getWidth() - s->getWidth()) / 2), 0);
+        if (scroll && session.isTrackSelected (s->getTrack())) view.setViewPosition (juce::jlimit (0, juce::jmax (0, holder.getWidth() - view.getWidth()), s->getX() - (view.getWidth() - s->getWidth()) / 2), 0);
     }
 }
 

@@ -161,7 +161,7 @@ private:
     struct SelectOnTouch : juce::MouseListener
     {
         SelectOnTouch (SessionController& s, juce::ValueTree t) : session (s), track (t) {}
-        void mouseDown (const juce::MouseEvent& e) override { if (! e.mods.isPopupMenu() && ! session.isTrackSelected (track)) session.clickTrack (track, {}); }
+        void mouseDown (const juce::MouseEvent& e) override { if (! e.mods.isPopupMenu() && ! session.isTrackSelected (track)) { session.markMixerSelect(); session.clickTrack (track, {}); } }
         SessionController& session;
         juce::ValueTree track;
     } selectOnTouch { session, track };

@@ -2545,7 +2545,7 @@ void ArrangeView::changeListenerCallback (juce::ChangeBroadcaster* source)
         for (auto& c : session.justRecorded)
             if (c.getParent().isValid()) selection.addIfNotAlreadyThere (c);
     }
-    if (source == &session.selectionChanged && ! session.selectedTracks.isEmpty())   // selected in the mixer: bring it into view
+    if (source == &session.selectionChanged && session.selectionCameFromMixer() && ! session.selectedTracks.isEmpty())   // picked in a mixer: show it here
     {
         const int i = doc.tracks().indexOf (session.selectedTracks.getFirst());
         if (i >= 0 && i < numTracks())

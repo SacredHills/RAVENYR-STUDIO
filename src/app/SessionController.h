@@ -60,6 +60,10 @@ public:
     // ---- track selection (shared by arrange view and mixer) ----
     juce::Array<juce::ValueTree> selectedTracks;
     juce::ChangeBroadcaster selectionChanged;
+    /** A mixer strip is selecting its own track: the mixers must not scroll for it (set just before clickTrack). */
+    juce::uint32 mixerSelectMs = 0;
+    void markMixerSelect() { mixerSelectMs = juce::Time::getMillisecondCounter(); }
+    bool selectionCameFromMixer() const { return juce::Time::getMillisecondCounter() - mixerSelectMs < 400; }
     /** The clips the last recording made: the arrange view keeps them selected (highlighted) afterwards. */
     juce::Array<juce::ValueTree> justRecorded;
     juce::ChangeBroadcaster recordingFinished;
