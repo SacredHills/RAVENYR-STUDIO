@@ -145,7 +145,7 @@ public:
     static constexpr int width = 168;   // wide enough for a rack slot (rack 168 x 588 = 2:7)
     int wantedFaderTop() const;
     /** The pop-up mixer shows the plugin list on the strip (the mixer page has the rack for that). */
-    void setShowInserts (bool b) { showInserts = b; insertView.setVisible (b); resized(); }
+    void setShowInserts (bool b) { showInserts = b; if (b) addAndMakeVisible (insertView); else removeChildComponent (&insertView); resized(); }
     int dropSide = 0;   // -1 / +1: a dragged track will land before / after this strip
     int alignTop = 0;   // set by the mixer: the lowest fader top of all strips
 
@@ -185,17 +185,25 @@ private:
 class MiniMixer : public juce::Component, public juce::DragAndDropContainer, private juce::Timer, private juce::ValueTree::Listener
 {
 public:
-    MiniMixer (ProjectDocument&, EngineHost&, SessionController&);
+    MiniMixer (ProjectDocument&, EngineHost&, SessionController&, juce::PropertiesFile&);
     ~MiniMixer() override;
     void resized() override;
-    void paint (juce::Graphics& g) override { g.fillAll (palette::bg); }
+    void paint (juce::Graphics& g) override;
 private:
     ProjectDocument& doc;
     EngineHost& host;
     SessionController& session;
+    juce::PropertiesFile& settings;
     juce::Viewport view;
     juce::Component holder;
     juce::OwnedArray<ChannelStrip> strips;
+    // the main output: fixed at the right, it does not scroll with the strips
+    juce::Slider mainFader;
+    MeterView mainMeterL, mainMeterR;
+    std::unique_ptr<InsertList> mainInserts;
+    juce::Viewport mainInsertView;
+    static constexpr int mainW = 118;
+    int lastMainRows = -1;
     bool rebuildPending = false;
     void rebuild();
     void timerCallback() override;

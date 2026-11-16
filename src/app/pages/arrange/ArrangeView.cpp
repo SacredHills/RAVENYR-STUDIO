@@ -175,8 +175,7 @@ void InsertStrip::mouseDown (const juce::MouseEvent& e)
 
 TrackHeader::TrackHeader (ArrangeView& v, juce::ValueTree t, int i) : track (t), index (i), owner (v)
 {
-    inserts = std::make_unique<InsertStrip> (v, t);
-    addAndMakeVisible (*inserts);
+    inserts = std::make_unique<InsertStrip> (v, t);   // (not shown: plugins live in the mixer)
     name.setFont (uiFont (14.0f, true));
     name.setColour (juce::Label::textColourId, palette::text);
     name.setEditable (false, true, false);
@@ -459,9 +458,6 @@ void TrackHeader::resized()
     input.setBounds (isAudioTrack (track) ? ia : inputArea);
     row.removeFromLeft (4);
     gain.setBounds (row);
-    r.removeFromTop (6);
-    inserts->setVisible (r.getHeight() >= 18);   // a short track has no room for the plugin row
-    inserts->setBounds (r.removeFromTop (juce::jmin (22, r.getHeight())));
 }
 
 void TrackHeader::mouseMove (const juce::MouseEvent& e)
@@ -2611,7 +2607,7 @@ void ArrangeView::setMixerShown (bool on)
 {
     if (on && miniMixer == nullptr)
     {
-        miniMixer = std::make_unique<MiniMixer> (doc, host, session);
+        miniMixer = std::make_unique<MiniMixer> (doc, host, session, settings);
         addAndMakeVisible (*miniMixer);
         addAndMakeVisible (mixerBar);
     }

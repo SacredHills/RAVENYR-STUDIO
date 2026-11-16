@@ -895,11 +895,29 @@ int ChannelStrip::wantedFaderTop() const
 
 // ------------------------------------------------------------------ pop-up mixer
 
-MiniMixer::MiniMixer (ProjectDocument& d, EngineHost& h, SessionController& sc) : doc (d), host (h), session (sc)
+MiniMixer::MiniMixer (ProjectDocument& d, EngineHost& h, SessionController& sc, juce::PropertiesFile& st)
+    : doc (d), host (h), session (sc), settings (st), mainMeterL (h.engine.outputMeterL), mainMeterR (h.engine.outputMeterR)
 {
     view.setViewedComponent (&holder, false);
     view.setScrollBarsShown (false, true);
     addAndMakeVisible (view);
+    setupFader (mainFader);
+    mainFader.setValue (settings.getDoubleValue ("mainOutDb", 0.0), juce::dontSendNotification);
+    mainFader.onValueChange = [this] {
+        const double db = mainFader.getValue();
+        host.engine.masterGain = db <= -59.95 ? 0.0f : juce::Decibels::decibelsToGain ((float) db);
+        settings.setValue ("mainOutDb", db);
+    };
+    mainFader.setTooltip ("Main output level (monitoring level; not part of exports)");
+    addAndMakeVisible (mainFader);
+    addAndMakeVisible (mainMeterL);
+    addAndMakeVisible (mainMeterR);
+    mainInserts = std::make_unique<InsertList> (session, project::masterNode (doc.tree()));
+    mainInserts->setTooltip ("Plugins on the main output (they process the whole mix, and are in exports)");
+    mainInsertView.setViewedComponent (mainInserts.get(), false);
+    mainInsertView.setScrollBarsShown (true, false);
+    mainInsertView.setScrollBarThickness (6);
+    addAndMakeVisible (mainInsertView);
     doc.tree().addListener (this);
     rebuild();
     startTimerHz (30);
@@ -910,6 +928,20 @@ MiniMixer::~MiniMixer()
     doc.tree().removeListener (this);
     stopTimer();
     strips.clear();
+    mainInsertView.setViewedComponent (nullptr, false);
+}
+
+void MiniMixer::paint (juce::Graphics& g)
+{
+    g.fillAll (palette::bg);
+    auto r = getLocalBounds().removeFromRight (mainW).reduced (3, 0);
+    g.setColour (palette::panel);
+    g.fillRoundedRectangle (r.toFloat(), 4.0f);
+    g.setColour (palette::outline);
+    g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 4.0f, 1.0f);
+    g.setColour (palette::text);
+    g.setFont (uiFont (12.0f, true));
+    g.drawText ("MAIN OUT", r.removeFromTop (28), juce::Justification::centred);
 }
 
 void MiniMixer::rebuild()
@@ -931,17 +963,45 @@ void MiniMixer::rebuild()
 
 void MiniMixer::resized()
 {
-    view.setBounds (getLocalBounds());
+    auto all = getLocalBounds();
+    auto mainArea = all.removeFromRight (mainW).reduced (3, 0);
+    view.setBounds (all);
     const int h = juce::jmax (120, view.getMaximumVisibleHeight());
+    const int sw = 104;
     int x = 0;
-    for (auto* s : strips) { s->setBounds (x, 0, ChannelStrip::width - 24, h); x += ChannelStrip::width - 24; }
+    for (auto* s : strips) { s->setBounds (x, 0, sw, h); x += sw; }
     holder.setSize (juce::jmax (x, view.getWidth()), h);
+
+    auto s = mainArea.withTrimmedTop (28).reduced (8, 4).withTrimmedBottom (6);
+    {
+        const int rows = mainInserts->rowsWanted();
+        const int want = rows * InsertList::rowHeight, room = juce::jmax (InsertList::rowHeight, s.getHeight() - 150);
+        mainInsertView.setBounds (s.removeFromTop (juce::jmin (want, room)));
+        mainInserts->setSize (mainInsertView.getWidth() - (want > room ? mainInsertView.getScrollBarThickness() + 1 : 0), want);
+        s.removeFromTop (6);
+    }
+    auto meters = s.removeFromRight (34);
+    s.removeFromRight (4);
+    mainFader.setBounds (s);
+    const int mTop = mainFader.getY() + juce::roundToInt (mainFader.getPositionOfValue (6.0)) - 7;
+    const int mBottom = mainFader.getY() + juce::roundToInt (mainFader.getPositionOfValue (-60.0));
+    mainMeterL.setBounds (meters.getX(), mTop, 15, mBottom - mTop);
+    mainMeterR.setBounds (meters.getX() + 19, mTop, 15, mBottom - mTop);
 }
 
 void MiniMixer::timerCallback()
 {
     if (rebuildPending) { rebuild(); return; }
     for (auto* s : strips) s->tick();
+    mainMeterL.tick();
+    mainMeterR.tick();
+    if (! mainFader.isMouseButtonDown())   // the Mixer page may have moved it
+    {
+        const double db = settings.getDoubleValue ("mainOutDb", 0.0);
+        if (std::abs (db - mainFader.getValue()) > 0.01) mainFader.setValue (db, juce::dontSendNotification);
+    }
+    if (mainInserts->rowsWanted() != lastMainRows) { lastMainRows = mainInserts->rowsWanted(); resized(); }
+    mainInserts->repaint();
 }
 
 // ------------------------------------------------------------------ page
@@ -1031,6 +1091,11 @@ void MixerPage::timerCallback()
 {
     meterL.tick();
     meterR.tick();
+    if (! fader.isMouseButtonDown())   // the editor's pop-up mixer may have moved it
+    {
+        const double db = settings.getDoubleValue ("mainOutDb", 0.0);
+        if (std::abs (db - fader.getValue()) > 0.01) fader.setValue (db, juce::dontSendNotification);
+    }
     {
         const int top = autoFaderTop();
         if (top != lastAutoTop) { lastAutoTop = top; resized(); }   // a strip gained or lost a plugin / send row
