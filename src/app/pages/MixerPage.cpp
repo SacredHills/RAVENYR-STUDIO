@@ -1011,7 +1011,7 @@ void MiniMixer::timerCallback()
     for (auto* s : strips) s->tick();
     mainMeterL.tick();
     mainMeterR.tick();
-    if (! mainFader.isMouseButtonDown())   // the Mixer page may have moved it
+    if ((++syncTick & 15) == 0 && ! mainFader.isMouseButtonDown())   // the Mixer page may have moved it (twice a second is enough)
     {
         const double db = settings.getDoubleValue ("mainOutDb", 0.0);
         if (std::abs (db - mainFader.getValue()) > 0.01) mainFader.setValue (db, juce::dontSendNotification);
@@ -1107,7 +1107,7 @@ void MixerPage::timerCallback()
 {
     meterL.tick();
     meterR.tick();
-    if (! fader.isMouseButtonDown())   // the editor's pop-up mixer may have moved it
+    if ((++syncTick & 15) == 0 && ! fader.isMouseButtonDown())   // the editor's pop-up mixer may have moved it (twice a second)
     {
         const double db = settings.getDoubleValue ("mainOutDb", 0.0);
         if (std::abs (db - fader.getValue()) > 0.01) fader.setValue (db, juce::dontSendNotification);

@@ -587,11 +587,10 @@ class EqGraph final : public juce::Component, private juce::Timer
 public:
     explicit EqGraph (Eq& e) : eq (e)
     {
-        ++eq.analyserWanted;
         setWantsKeyboardFocus (true);
         startTimerHz (30);
     }
-    ~EqGraph() override { --eq.analyserWanted; }
+    ~EqGraph() override { if (counted) --eq.analyserWanted; }
 
     std::function<void (int)> onSelect;
     std::function<void()> onListenChanged;
@@ -965,8 +964,26 @@ private:
         }
         hasSpectrum = true;
     }
+    /** Whether any of the graph can be seen: on screen, and not scrolled out of a viewport it sits in. */
+    bool reallyVisible() const
+    {
+        if (! isShowing()) return false;
+        auto r = getLocalBounds();
+        for (const juce::Component* c = this; c->getParentComponent() != nullptr; c = c->getParentComponent())
+        {
+            auto* p = c->getParentComponent();
+            r = p->getLocalArea (c, r).getIntersection (p->getLocalBounds());
+            if (r.isEmpty()) return false;
+        }
+        return true;
+    }
+    bool counted = false;   // this graph is currently asking the EQ for its spectrum samples
     void timerCallback() override
     {
+        // Many EQs can be open (one per track): only the ones in view analyse and draw
+        const bool vis = reallyVisible();
+        if (vis != counted) { counted = vis; if (vis) ++eq.analyserWanted; else --eq.analyserWanted; }
+        if (! vis) return;
         pullSamples();
         repaint();
     }

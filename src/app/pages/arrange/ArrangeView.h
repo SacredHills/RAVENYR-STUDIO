@@ -396,6 +396,7 @@ private:
     void setMixerShown (bool on);
     juce::TextButton allMute { "M" }, allSolo { "S" };   // every track at once (top left, above the first track)
     void refreshAllButtons();
+    int allTick = 0;
 public:
     /** Automation mode: tracks show an automation lane (volume, pan, plugin parameters) over their clips. */
     bool automationMode() const { return autoButton.getToggleState(); }

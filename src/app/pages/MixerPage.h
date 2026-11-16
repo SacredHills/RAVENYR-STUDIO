@@ -213,7 +213,7 @@ private:
     std::unique_ptr<InsertList> mainInserts;
     juce::Viewport mainInsertView;
     static constexpr int mainW = 118;
-    int lastMainRows = -1;
+    int lastMainRows = -1, syncTick = 0;
     bool rebuildPending = false;
     void rebuild();
     void timerCallback() override;
@@ -261,6 +261,7 @@ private:
     void setRackHeight (int h);
     ScrollSafeSlider fader;
     MeterView meterL, meterR;
+    int syncTick = 0;
     juce::Rectangle<int> masterBox, scale;
     juce::Label emptyLabel;
     juce::TextButton addTrackButton { "+ Track" };

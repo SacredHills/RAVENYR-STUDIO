@@ -2642,7 +2642,7 @@ void ArrangeView::refreshAllButtons()
 
 void ArrangeView::timerCallback()
 {
-    refreshAllButtons();
+    if ((++allTick & 3) == 0) refreshAllButtons();
     for (auto* h : headers)
         h->tickMeter();
 
