@@ -2619,6 +2619,7 @@ void ArrangeView::setMixerShown (bool on)
 {
     if (on && miniMixer == nullptr)
     {
+        if (dockedEditor != nullptr) closeMidiEditor();   // the mixer and the MIDI editor share the space: one at a time
         miniMixer = std::make_unique<MiniMixer> (doc, host, session, settings);
         addAndMakeVisible (*miniMixer);
         addAndMakeVisible (mixerBar);
@@ -2858,6 +2859,7 @@ void ArrangeView::openMidiEditor (juce::ValueTree clip)
     const auto id = clip[ids::id].toString();
     if (dockedEditor == nullptr || dockedClipId != id)
     {
+        if (miniMixer != nullptr) setMixerShown (false);
         dockedEditor = std::make_unique<PianoRoll> (doc, host, clip);
         dockedClipId = id;
         dockTitle.text = "MIDI editor  -  " + clip.getParent()[ids::name].toString() + " / " + clip[ids::name].toString();
