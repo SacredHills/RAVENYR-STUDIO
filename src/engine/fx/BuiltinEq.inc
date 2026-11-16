@@ -497,7 +497,7 @@ public:
             L[i] *= g;
             if (R != nullptr) R[i] *= g;
         }
-        if (analyserWanted.load (std::memory_order_relaxed))   // feed the spectrum display (only while it is open)
+        if (analyserWanted.load (std::memory_order_relaxed) > 0)   // feed the spectrum display (only while it is open)
         {
             int s1, n1, s2, n2;
             scope.prepareToWrite (n, s1, n1, s2, n2);
@@ -513,7 +513,7 @@ public:
     static constexpr int scopeSize = 16384;
     juce::AbstractFifo scope { scopeSize };
     std::vector<float> scopeBuf = std::vector<float> ((size_t) scopeSize, 0.0f);
-    std::atomic<bool> analyserWanted { false };
+    std::atomic<int> analyserWanted { 0 };   // how many graphs are open (rack and plugin window can both be)
     std::array<std::atomic<float>, eqBandCount> dynNow {};   // live dynamic gain change per band (dB)
     EqSpectral spectral;
     std::atomic<bool> spectralOn { false };
@@ -587,11 +587,11 @@ class EqGraph final : public juce::Component, private juce::Timer
 public:
     explicit EqGraph (Eq& e) : eq (e)
     {
-        eq.analyserWanted = true;
+        ++eq.analyserWanted;
         setWantsKeyboardFocus (true);
         startTimerHz (30);
     }
-    ~EqGraph() override { eq.analyserWanted = false; }
+    ~EqGraph() override { --eq.analyserWanted; }
 
     std::function<void (int)> onSelect;
     std::function<void()> onListenChanged;

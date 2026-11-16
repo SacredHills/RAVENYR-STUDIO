@@ -40,6 +40,8 @@ PianoRoll::PianoRoll (ProjectDocument& d, EngineHost& h, juce::ValueTree c) : do
     drawButton.setTooltip ("Draw: click to add notes and drag to set their length (D). Off: drag to select, double-click to add.");
     quantizeButton.setTooltip ("Move the selected notes (or all of them) onto the grid (Q)");
     quantizeButton.onClick = [this] { quantize(); };
+    humanizeButton.setTooltip ("Humanize: loosen the timing, velocity and length of the selected notes (or all of them) a little");
+    humanizeButton.onClick = [this] { showHumanize(); };
     zoomIn.onClick = [this] { pps = juce::jmin (4000.0, pps * 1.4); repaint(); };
     zoomOut.onClick = [this] { pps = juce::jmax (10.0, pps / 1.4); repaint(); };
     fitButton.onClick = [this] { fit(); };
@@ -48,7 +50,7 @@ PianoRoll::PianoRoll (ProjectDocument& d, EngineHost& h, juce::ValueTree c) : do
     followButton.setColour (juce::TextButton::buttonOnColourId, palette::accent);
     followButton.setTooltip ("Follow: the editor scrolls to the play position, whether you play or click to move it in the arranger");
     followButton.onClick = [this] { followOn() = followButton.getToggleState(); if (followOn()) lastPlayhead = -1.0; };
-    for (auto* c2 : std::initializer_list<juce::Component*> { &drawButton, &quantizeButton, &zoomIn, &zoomOut, &fitButton, &followButton, &gridBox, &lengthBox })
+    for (auto* c2 : std::initializer_list<juce::Component*> { &drawButton, &quantizeButton, &humanizeButton, &zoomIn, &zoomOut, &fitButton, &followButton, &gridBox, &lengthBox })
     {
         c2->setWantsKeyboardFocus (false);
         addAndMakeVisible (c2);
@@ -75,15 +77,20 @@ PianoRoll::~PianoRoll()
 
 juce::Rectangle<int> PianoRoll::gridArea() const
 {
-    return getLocalBounds().withTrimmedTop (toolbarH + rulerH).withTrimmedLeft (keysW).withTrimmedBottom (velH + sbW).withTrimmedRight (sbW);
+    return getLocalBounds().withTrimmedTop (toolbarH + rulerH).withTrimmedLeft (keysW).withTrimmedBottom (velH() + sbW).withTrimmedRight (sbW);
 }
 juce::Rectangle<int> PianoRoll::velArea() const
 {
-    return getLocalBounds().withTrimmedBottom (sbW).removeFromBottom (velH).withTrimmedLeft (keysW).withTrimmedRight (sbW).withTrimmedTop (4);
+    return getLocalBounds().withTrimmedBottom (sbW).removeFromBottom (velH()).withTrimmedLeft (keysW).withTrimmedRight (sbW).withTrimmedTop (4);
+}
+juce::Rectangle<int> PianoRoll::velHandle() const
+{
+    const auto v = velArea();
+    return { keysW, v.getY() - 6, v.getWidth() + 0, 9 };
 }
 juce::Rectangle<int> PianoRoll::keysArea() const
 {
-    return getLocalBounds().withTrimmedTop (toolbarH + rulerH).withTrimmedBottom (velH + sbW).removeFromLeft (keysW);
+    return getLocalBounds().withTrimmedTop (toolbarH + rulerH).withTrimmedBottom (velH() + sbW).removeFromLeft (keysW);
 }
 juce::Rectangle<int> PianoRoll::rulerArea() const
 {
@@ -267,6 +274,80 @@ void PianoRoll::quantize()
     }
     commit ("Quantize notes");
     flash ("Quantized " + juce::String (moved) + " of " + juce::String (count) + " notes to " + gridName);
+}
+
+namespace
+{
+    struct HumanizeSettings { double timingMs = 12.0, velocity = 10.0, lengthPct = 5.0; };
+    HumanizeSettings& humanizeSettings() { static HumanizeSettings h; return h; }
+
+    class HumanizePanel final : public juce::Component
+    {
+    public:
+        explicit HumanizePanel (std::function<void()> applyFn) : onApply (std::move (applyFn))
+        {
+            auto& h = humanizeSettings();
+            setup (timing, "Timing (± ms)", 0.0, 60.0, 1.0, h.timingMs);
+            setup (vel, "Velocity (± steps)", 0.0, 40.0, 1.0, h.velocity);
+            setup (len, "Length (± %)", 0.0, 40.0, 1.0, h.lengthPct);
+            timing.onValueChange = [this] { humanizeSettings().timingMs = timing.getValue(); };
+            vel.onValueChange = [this] { humanizeSettings().velocity = vel.getValue(); };
+            len.onValueChange = [this] { humanizeSettings().lengthPct = len.getValue(); };
+            apply.onClick = [this] { if (onApply) onApply(); };
+            addAndMakeVisible (apply);
+            setSize (260, 190);
+        }
+        void resized() override
+        {
+            auto r = getLocalBounds().reduced (10, 8);
+            int i = 0;
+            for (auto* s : { &timing, &vel, &len }) { labels[i++]->setBounds (r.removeFromTop (14)); s->setBounds (r.removeFromTop (24)); r.removeFromTop (6); }
+            apply.setBounds (r.removeFromTop (26));
+        }
+    private:
+        void setup (juce::Slider& s, const juce::String& name, double lo, double hi, double step, double v)
+        {
+            s.setSliderStyle (juce::Slider::LinearHorizontal);
+            s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 20);
+            s.setRange (lo, hi, step);
+            s.setValue (v, juce::dontSendNotification);
+            addAndMakeVisible (s);
+            auto* l = labels.add (new juce::Label ({}, name));
+            l->setFont (uiFont (11.0f));
+            l->setColour (juce::Label::textColourId, palette::textDim);
+            l->setInterceptsMouseClicks (false, false);
+            addAndMakeVisible (l);
+        }
+        void paintOverChildren (juce::Graphics&) override {}
+        juce::Slider timing, vel, len;
+        juce::TextButton apply { "Humanize" };
+        juce::OwnedArray<juce::Label> labels;
+        std::function<void()> onApply;
+    };
+}
+
+void PianoRoll::showHumanize()
+{
+    if (notes.empty()) { flash ("No notes to humanize"); return; }
+    auto panel = std::make_unique<HumanizePanel> ([this] {
+        const auto h = humanizeSettings();
+        const bool any = numSelected() > 0;
+        static juce::Random rng;
+        auto jitter = [&] (double amt) { return (rng.nextDouble() * 2.0 - 1.0) * amt; };
+        int count = 0;
+        for (size_t i = 0; i < notes.size(); ++i)
+            if (! any || selected[i])
+            {
+                auto& n = notes[i];
+                n.start = juce::jmax (0.0, n.start + jitter (h.timingMs / 1000.0));
+                n.velocity = juce::jlimit (1, 127, n.velocity + juce::roundToInt (jitter (h.velocity)));
+                n.length = juce::jmax (0.01, n.length * (1.0 + jitter (h.lengthPct / 100.0)));
+                ++count;
+            }
+        commit ("Humanize notes");
+        flash ("Humanized " + juce::String (count) + " notes");
+    });
+    juce::CallOutBox::launchAsynchronously (std::move (panel), humanizeButton.getScreenBounds(), nullptr);
 }
 
 namespace
@@ -591,7 +672,8 @@ void PianoRoll::resized()
     gridBox.setBounds (tb.removeFromLeft (110)); tb.removeFromLeft (10);
     lengthLabel.setBounds (tb.removeFromLeft (70));
     lengthBox.setBounds (tb.removeFromLeft (80)); tb.removeFromLeft (10);
-    quantizeButton.setBounds (tb.removeFromLeft (80)); tb.removeFromLeft (10);
+    quantizeButton.setBounds (tb.removeFromLeft (80)); tb.removeFromLeft (6);
+    humanizeButton.setBounds (tb.removeFromLeft (80)); tb.removeFromLeft (10);
     fitButton.setBounds (tb.removeFromRight (44)); tb.removeFromRight (4);
     followButton.setBounds (tb.removeFromRight (64)); tb.removeFromRight (4);
     zoomIn.setBounds (tb.removeFromRight (30)); tb.removeFromRight (2);
@@ -627,6 +709,12 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
         repaint();
         return;
     }
+    if (velHandle().contains (e.getPosition()))   // drag the lane's top edge up or down to make it taller or shorter
+    {
+        drag = Drag::velSize;
+        velDragStartH = velH();
+        return;
+    }
     if (velArea().contains (e.getPosition()))
     {
         // The bar under the cursor. Bars are 3 px wide with a dot on top; notes at the same time overlap, so ties go to a
@@ -643,6 +731,13 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
             if (score < bestScore) { bestScore = score; best = (int) i; }
         }
         if (best < 0) return;
+        if (e.mods.isShiftDown() || e.mods.isCommandDown())   // shift-click bars to add them to / take them from the selection
+        {
+            selected[(size_t) best] = ! selected[(size_t) best];
+            updateInfo();
+            repaint();
+            return;
+        }
         anchor = best;
         if (! selected[(size_t) best]) { std::fill (selected.begin(), selected.end(), 0); selected[(size_t) best] = 1; }
         beginEdit ("Note velocity");
@@ -732,6 +827,12 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
     {
         case Drag::scrub:
             host.engine.locateSeconds (snap (timeFor (e.position.x), snapOn));
+            repaint();
+            break;
+        case Drag::velSize:
+            velHeight() = juce::jlimit (40, 600, velDragStartH - juce::roundToInt (e.position.y - downPos.y));
+            resized();
+            updateScrollBars();
             repaint();
             break;
         case Drag::keyboard:
@@ -827,6 +928,7 @@ void PianoRoll::mouseMove (const juce::MouseEvent& e)
     bool edge = false;
     const int hit = gridArea().contains (e.getPosition()) ? noteAt (e.position, edge) : -1;
     if (rulerArea().contains (e.getPosition())) { setMouseCursor (juce::MouseCursor::PointingHandCursor); return; }
+    if (velHandle().contains (e.getPosition())) { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); return; }
     if (velArea().contains (e.getPosition())) { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); return; }
     setMouseCursor (hit >= 0 ? (edge ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::DraggingHandCursor)
                              : drawButton.getToggleState() && gridArea().contains (e.getPosition()) ? juce::MouseCursor::CrosshairCursor

@@ -412,7 +412,7 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
     EditorWindow (PluginManager& m, std::shared_ptr<juce::AudioPluginInstance> p, const juce::String& title, std::function<void()> closed,
                   BypassControl bypass)
         : juce::DocumentWindow (title, palette::bg, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
-          plugin (std::move (p)), onClosed (std::move (closed))
+          manager (&m), plugin (std::move (p)), onClosed (std::move (closed))
     {
         setUsingNativeTitleBar (true);
         juce::AudioProcessorEditor* ed = nullptr;
@@ -447,20 +447,35 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
             }
             const int extraW = getWidth() - content->getWidth(), extraH = getHeight() - content->getHeight();
             setResizeLimits (juce::jmax (minW, Content::minBarWidth) + extraW, minH + Content::bar + extraH, 10000, 10000);
+            // the size it had when it was last closed
+            const auto saved = juce::StringArray::fromTokens (m.settings.getValue (sizeKey()), ",", {});
+            if (saved.size() == 2 && saved[0].getIntValue() > 100 && saved[1].getIntValue() > 100)
+            {
+                setSize (saved[0].getIntValue(), saved[1].getIntValue());
+                centreWithSize (getWidth(), getHeight());
+            }
         }
         setVisible (true);
     }
+    juce::String sizeKey() const { return "pluginWinSize:" + plugin->getName(); }
+    void rememberSize()
+    {
+        if (editor != nullptr && editor->isResizable() && manager != nullptr)
+            manager->settings.setValue (sizeKey(), juce::String (getWidth()) + "," + juce::String (getHeight()));
+    }
     ~EditorWindow() override
     {
+        rememberSize();
         clearContentComponent();
         content.reset();
         if (editor != nullptr) plugin->editorBeingDeleted (editor.get());
         editor.reset();
     }
-    void closeButtonPressed() override { if (floating != nullptr) floating->aboutToHide(); if (onClosed) juce::MessageManager::callAsync (onClosed); }
+    void closeButtonPressed() override { rememberSize(); if (floating != nullptr) floating->aboutToHide(); if (onClosed) juce::MessageManager::callAsync (onClosed); }
     bool keyPressed (const juce::KeyPress& k) override { return globalkeys::forward (k) || juce::DocumentWindow::keyPressed (k); }
     void activeWindowStatusChanged() override { if (content != nullptr) content->refresh(); }
 
+    PluginManager* manager = nullptr;
     std::shared_ptr<juce::AudioPluginInstance> plugin;   // keeps the plugin alive while its editor is open
     std::unique_ptr<juce::AudioProcessorEditor> editor;
     std::unique_ptr<Content> content;

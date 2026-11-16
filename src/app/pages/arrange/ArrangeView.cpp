@@ -2358,6 +2358,24 @@ ArrangeView::ArrangeView (ProjectDocument& d, EngineHost& h, SessionController& 
         resized();
         repaintAll();
     };
+    styleToggle (allMute, palette::accent, "Mute every track (click again to unmute them all)");
+    styleToggle (allSolo, palette::warn, "Solo every track (click again to clear all solos)");
+    allMute.onClick = [this] {
+        bool any = false;
+        for (auto t : doc.tracks()) any = any || (bool) t[ids::mute];
+        doc.undo().beginNewTransaction (any ? "Unmute all" : "Mute all");
+        for (auto t : doc.tracks()) doc.set (t, ids::mute, ! any, true);
+        refreshAllButtons();
+    };
+    allSolo.onClick = [this] {
+        bool any = false;
+        for (auto t : doc.tracks()) any = any || (bool) t[ids::solo];
+        doc.undo().beginNewTransaction (any ? "Clear solo" : "Solo all");
+        for (auto t : doc.tracks()) doc.set (t, ids::solo, ! any, true);
+        refreshAllButtons();
+    };
+    addAndMakeVisible (allMute);
+    addAndMakeVisible (allSolo);
     masterButton.setClickingTogglesState (true);
     masterButton.setTooltip ("Master: show the main output's automation lane under the tracks: its volume (a fade-out, say) and the "
                              "parameters of the plugins on the master bus. Double-click to add a point, drag to move it. Plays and exports.");
@@ -2394,6 +2412,12 @@ ArrangeView::ArrangeView (ProjectDocument& d, EngineHost& h, SessionController& 
     addAndMakeVisible (vScroll);
 
     dockHeight = settings.getIntValue ("midiDockHeight", 320);
+    mixerHeight = settings.getIntValue ("miniMixerHeight", 340);
+    mixerButton.setClickingTogglesState (true);
+    mixerButton.setColour (juce::TextButton::buttonOnColourId, palette::accent);
+    mixerButton.setTooltip ("Pop the mixer up under the tracks: faders, pan, mute / solo and plugins");
+    mixerButton.onClick = [this] { setMixerShown (mixerButton.getToggleState()); };
+    addAndMakeVisible (mixerButton);
     dockClose.setTooltip ("Close the MIDI editor");
     dockClose.onClick = [this] { closeMidiEditor(); };
     session.selectionChanged.addChangeListener (this);
@@ -2583,8 +2607,34 @@ void ArrangeView::repaintAll()
     if (masterShown) { masterLane.repaint(); masterHeader.repaint(); }
 }
 
+void ArrangeView::setMixerShown (bool on)
+{
+    if (on && miniMixer == nullptr)
+    {
+        miniMixer = std::make_unique<MiniMixer> (doc, host, session);
+        addAndMakeVisible (*miniMixer);
+        addAndMakeVisible (mixerBar);
+    }
+    else if (! on)
+    {
+        miniMixer.reset();
+        mixerBar.setVisible (false);
+    }
+    mixerButton.setToggleState (on, juce::dontSendNotification);
+    resized();
+}
+
+void ArrangeView::refreshAllButtons()
+{
+    bool m = false, so = false;
+    for (auto t : doc.tracks()) { m = m || (bool) t[ids::mute]; so = so || (bool) t[ids::solo]; }
+    allMute.setToggleState (m, juce::dontSendNotification);
+    allSolo.setToggleState (so, juce::dontSendNotification);
+}
+
 void ArrangeView::timerCallback()
 {
+    refreshAllButtons();
     for (auto* h : headers)
         h->tickMeter();
 
@@ -2659,7 +2709,7 @@ void ArrangeView::paint (juce::Graphics& g)
     g.fillRect (corner);
     g.setColour (palette::textDim);
     g.setFont (uiFont (11.0f, true));
-    g.drawText (juce::String (numTracks()) + (numTracks() == 1 ? " TRACK" : " TRACKS"), corner.withHeight (Ruler::baseHeight).reduced (12, 0), juce::Justification::centredLeft);
+    g.drawText (juce::String (numTracks()) + (numTracks() == 1 ? " TRACK" : " TRACKS"), corner.withHeight (Ruler::baseHeight).reduced (12, 0).withTrimmedRight (60), juce::Justification::centredLeft);
     if (tempoTrackShown)
     {
         auto lane = corner.withTrimmedTop (Ruler::baseHeight - Ruler::markerLane).withHeight (tempoTrackHeight);
@@ -2695,12 +2745,25 @@ void ArrangeView::resized()
     tempoButton.setBounds (tb.removeFromLeft (104));
     tb.removeFromLeft (6);
     masterButton.setBounds (tb.removeFromLeft (70));
+    tb.removeFromLeft (6);
+    mixerButton.setBounds (tb.removeFromLeft (70));
+    {
+        auto c = juce::Rectangle<int> (0, toolbarHeight, headerWidth, Ruler::baseHeight).reduced (10, 0).removeFromRight (56).withSizeKeepingCentre (56, 24);
+        allMute.setBounds (c.removeFromLeft (26));
+        allSolo.setBounds (c.removeFromRight (26));
+    }
     fitButton.setBounds (tb.removeFromRight (44));
     tb.removeFromRight (4);
     zoomInButton.setBounds (tb.removeFromRight (30));
     tb.removeFromRight (4);
     zoomOutButton.setBounds (tb.removeFromRight (30));
 
+    if (miniMixer != nullptr)
+    {
+        mixerHeight = juce::jlimit (200, juce::jmax (200, getHeight() - 200), mixerHeight);
+        miniMixer->setBounds (r.removeFromBottom (mixerHeight));
+        mixerBar.setBounds (r.removeFromBottom (6));
+    }
     if (dockedEditor != nullptr)
     {
         dockHeight = juce::jlimit (160, juce::jmax (160, getHeight() - 200), dockHeight);

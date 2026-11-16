@@ -46,7 +46,12 @@ private:
     double scrollT = 0.0;       // seconds (timeline) at the grid's left edge
     float keyH = 12.0f;         // pixels per semitone
     float topPitch = 84.0f;     // pitch at the top of the grid
-    static constexpr int toolbarH = 36, rulerH = 20, keysW = 56, velH = 72, sbW = 12;
+    static constexpr int toolbarH = 36, rulerH = 20, keysW = 56, sbW = 12;
+    static int& velHeight() { static int h = 72; return h; }   // the velocity lane's height: drag its top edge (shared, remembered)
+    int velH() const { return juce::jlimit (40, juce::jmax (40, getHeight() - toolbarH - rulerH - sbW - 120), velHeight()); }
+    juce::Rectangle<int> velHandle() const;
+    int velDragStartH = 0;
+    void showHumanize();
     juce::ScrollBar hbar { false }, vbar { true };
     double lastPlayhead = -1.0;
     static bool& followOn() { static bool on = true; return on; }   // shared by the editors, on by default
@@ -54,12 +59,12 @@ private:
     int velTip = -1;                 // velocity drag: value shown by the cursor
     juce::Point<float> velTipPos;
 
-    juce::TextButton drawButton { "Draw" }, quantizeButton { "Quantize" }, zoomIn { "+" }, zoomOut { "-" }, fitButton { "Fit" }, followButton { "Follow" };
+    juce::TextButton drawButton { "Draw" }, quantizeButton { "Quantize" }, humanizeButton { "Humanize" }, zoomIn { "+" }, zoomOut { "-" }, fitButton { "Fit" }, followButton { "Follow" };
     juce::ComboBox gridBox, lengthBox;
     juce::Label gridLabel, lengthLabel, info;
 
     // gesture
-    enum class Drag { none, move, resize, marquee, velocity, draw, keyboard, scrub } drag = Drag::none;
+    enum class Drag { none, move, resize, marquee, velocity, draw, keyboard, scrub, velSize } drag = Drag::none;
     struct Orig { double start, length; int pitch, velocity; };
     std::vector<Orig> origs;
     int anchor = -1;

@@ -829,7 +829,7 @@ void ChannelStrip::resized()
     else r.removeFromTop (6);
     // plugins take the room left above the sends and the fader (which starts where the mixer's divider is); they scroll if
     // they do not fit
-    const int insRows = 0, routesH = routeList.rowsWanted() * RouteList::rowHeight;
+    const int insRows = showInserts ? juce::jmax (2, insertList.rowsWanted()) : 0, routesH = routeList.rowsWanted() * RouteList::rowHeight;
     const int roomBottom = juce::jmax (r.getY(), (alignTop > 0 ? alignTop : getHeight()) - 6 - routesH - (insRows > 0 ? 6 : 0));
     const int insH = juce::jmin (insRows * InsertList::rowHeight, roomBottom - r.getY());
     insertView.setBounds (r.removeFromTop (juce::jmax (0, insH)));
@@ -888,9 +888,60 @@ void MixerPage::RackDivider::paint (juce::Graphics& g)
 
 int ChannelStrip::wantedFaderTop() const
 {
-    const int ins = 0, routes = routeList.rowsWanted();
+    const int ins = showInserts ? juce::jmax (2, insertList.rowsWanted()) : 0, routes = routeList.rowsWanted();
     return 44 + 40 + 6 + 24 + (isInstrumentTrack (track) ? 30 : 6) + ins * InsertList::rowHeight + (ins > 0 ? 6 : 0)
            + routes * RouteList::rowHeight + 6;
+}
+
+// ------------------------------------------------------------------ pop-up mixer
+
+MiniMixer::MiniMixer (ProjectDocument& d, EngineHost& h, SessionController& sc) : doc (d), host (h), session (sc)
+{
+    view.setViewedComponent (&holder, false);
+    view.setScrollBarsShown (false, true);
+    addAndMakeVisible (view);
+    doc.tree().addListener (this);
+    rebuild();
+    startTimerHz (30);
+}
+
+MiniMixer::~MiniMixer()
+{
+    doc.tree().removeListener (this);
+    stopTimer();
+    strips.clear();
+}
+
+void MiniMixer::rebuild()
+{
+    rebuildPending = false;
+    strips.clear();
+    int i = 0;
+    for (auto t : doc.tracks())
+    {
+        if (! t.hasType (ids::TRACK) || i >= maxTracks) continue;
+        const int slot = i++;
+        if (isFolder (t)) continue;
+        auto* s = strips.add (new ChannelStrip (doc, host, session, t, slot));
+        s->setShowInserts (true);
+        holder.addAndMakeVisible (s);
+    }
+    resized();
+}
+
+void MiniMixer::resized()
+{
+    view.setBounds (getLocalBounds());
+    const int h = juce::jmax (120, view.getMaximumVisibleHeight());
+    int x = 0;
+    for (auto* s : strips) { s->setBounds (x, 0, ChannelStrip::width - 24, h); x += ChannelStrip::width - 24; }
+    holder.setSize (juce::jmax (x, view.getWidth()), h);
+}
+
+void MiniMixer::timerCallback()
+{
+    if (rebuildPending) { rebuild(); return; }
+    for (auto* s : strips) s->tick();
 }
 
 // ------------------------------------------------------------------ page

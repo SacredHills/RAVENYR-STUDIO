@@ -144,10 +144,13 @@ public:
     void tick();
     static constexpr int width = 168;   // wide enough for a rack slot (rack 168 x 588 = 2:7)
     int wantedFaderTop() const;
+    /** The pop-up mixer shows the plugin list on the strip (the mixer page has the rack for that). */
+    void setShowInserts (bool b) { showInserts = b; insertView.setVisible (b); resized(); }
     int dropSide = 0;   // -1 / +1: a dragged track will land before / after this strip
     int alignTop = 0;   // set by the mixer: the lowest fader top of all strips
 
 private:
+    bool showInserts = false;
     ProjectDocument& doc;
     EngineHost& host;
     SessionController& session;
@@ -175,6 +178,30 @@ private:
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { refresh(); resized(); }
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { refresh(); resized(); }
     void changeListenerCallback (juce::ChangeBroadcaster*) override { insertList.repaint(); }
+};
+
+/** The pop-up mixer on the editor page: a channel strip per track with its fader, pan, mute / solo and plugin list
+    (no rack), scrolling sideways. */
+class MiniMixer : public juce::Component, public juce::DragAndDropContainer, private juce::Timer, private juce::ValueTree::Listener
+{
+public:
+    MiniMixer (ProjectDocument&, EngineHost&, SessionController&);
+    ~MiniMixer() override;
+    void resized() override;
+    void paint (juce::Graphics& g) override { g.fillAll (palette::bg); }
+private:
+    ProjectDocument& doc;
+    EngineHost& host;
+    SessionController& session;
+    juce::Viewport view;
+    juce::Component holder;
+    juce::OwnedArray<ChannelStrip> strips;
+    bool rebuildPending = false;
+    void rebuild();
+    void timerCallback() override;
+    void valueTreeChildAdded (juce::ValueTree& p, juce::ValueTree& c) override { if (c.hasType (timeline::ids::TRACK) || p.hasType (timeline::ids::TRACK)) rebuildPending = true; }
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree& c, int) override { if (c.hasType (timeline::ids::TRACK)) rebuildPending = true; }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { rebuildPending = true; }
 };
 
 /** Mixer: a channel strip per track plus the main output. */

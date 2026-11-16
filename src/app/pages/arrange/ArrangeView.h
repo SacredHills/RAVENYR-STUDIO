@@ -8,6 +8,7 @@
 #include "core/MidiClip.h"
 #include "core/Automation.h"
 #include "PianoRoll.h"
+#include "../MixerPage.h"
 #include "../../ToolWindow.h"
 #include <map>
 
@@ -368,6 +369,32 @@ private:
     ContextButton addTrackButton { "+ Track" };
     juce::TextButton importButton { "Import" }, zoomInButton { "+" }, zoomOutButton { "-" },
         fitButton { "Fit" }, followButton { "Follow" }, sliceButton { "Slice" }, autoButton { "Automation" }, tempoButton { "Tempo Track" }, masterButton { "Master" };
+    juce::TextButton mixerButton { "Mixer" };   // pops the mixer up under the tracks
+    std::unique_ptr<MiniMixer> miniMixer;
+    struct MixerBar : juce::Component
+    {
+        explicit MixerBar (ArrangeView& o) : owner (o) { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); }
+        void paint (juce::Graphics& g) override
+        {
+            g.setColour (palette::outline);
+            g.fillRect (getLocalBounds());
+            g.setColour (palette::textDim.withAlpha (0.6f));
+            g.fillRoundedRectangle ((float) getWidth() * 0.5f - 18.0f, (float) getHeight() * 0.5f - 1.0f, 36.0f, 2.0f, 1.0f);
+        }
+        void mouseDown (const juce::MouseEvent&) override { startHeight = owner.mixerHeight; }
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            owner.mixerHeight = juce::jlimit (200, juce::jmax (200, owner.getHeight() - 200), startHeight - e.getDistanceFromDragStartY());
+            owner.resized();
+        }
+        void mouseUp (const juce::MouseEvent&) override { owner.settings.setValue ("miniMixerHeight", owner.mixerHeight); }
+        ArrangeView& owner;
+        int startHeight = 0;
+    } mixerBar { *this };
+    int mixerHeight = 340;
+    void setMixerShown (bool on);
+    juce::TextButton allMute { "M" }, allSolo { "S" };   // every track at once (top left, above the first track)
+    void refreshAllButtons();
 public:
     /** Automation mode: tracks show an automation lane (volume, pan, plugin parameters) over their clips. */
     bool automationMode() const { return autoButton.getToggleState(); }
