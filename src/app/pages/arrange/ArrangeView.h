@@ -1,4 +1,5 @@
 #pragma once
+#include "engine/fx/ScrollSafeSlider.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "../../ProjectDocument.h"
 #include "../../EngineHost.h"
@@ -115,7 +116,7 @@ private:
     ChannelModeButton channels;           // mono / stereo (audio tracks)
     ContextButton route;                  // bus / FX: output and sends; instrument track: the instrument (right-click: change / remove)
     juce::TextButton laneButton;          // automation mode, which lane the track shows
-    juce::Slider gain, pan;
+    ScrollSafeSlider gain, pan;
     std::unique_ptr<InsertStrip> inserts;
     juce::Array<std::pair<int, bool>> inputValues;
     std::vector<std::pair<juce::ValueTree, double>> groupStart; // other selected tracks' values at drag start

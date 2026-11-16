@@ -1,3 +1,4 @@
+#include "ScrollSafeSlider.h"
 #include "BuiltinPlugins.h"
 #include "Biquad.h"
 #include "engine/DrumSynth.h"
@@ -208,7 +209,7 @@ public:
 private:
     struct Knob
     {
-        juce::Slider slider;
+        ScrollSafeSlider slider;
         juce::Label label;
         juce::TextButton toggle;
         juce::ComboBox combo;
@@ -1306,7 +1307,7 @@ public:
 private:
     struct Knob
     {
-        juce::Slider slider;
+        ScrollSafeSlider slider;
         juce::Label label;
         juce::TextButton toggle;
         juce::ComboBox combo;
@@ -1563,7 +1564,7 @@ private:
         ~Body() override { releaseAttachments(); }
         bool built = false;
 
-        struct K { juce::Slider s; juce::Label l; std::unique_ptr<juce::SliderParameterAttachment> a; };
+        struct K { ScrollSafeSlider s; juce::Label l; std::unique_ptr<juce::SliderParameterAttachment> a; };
         std::array<K, 7> k;   // freq, gain, q, thresh, range, speed, output
         juce::ComboBox typeBox, slopeBox, dynBox;
         juce::TextButton onBtn { "ON" }, listenBtn { "LISTEN" }, delBtn { "DELETE" };

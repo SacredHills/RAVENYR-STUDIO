@@ -1,4 +1,5 @@
 #pragma once
+#include "engine/fx/ScrollSafeSlider.h"
 #include "../EngineHost.h"
 #include "../ProjectDocument.h"
 #include "../SessionController.h"
@@ -164,7 +165,7 @@ private:
         SessionController& session;
         juce::ValueTree track;
     } selectOnTouch { session, track };
-    juce::Slider fader, pan;
+    ScrollSafeSlider fader, pan;
     juce::TextButton mute { "M" }, solo { "S" }, arm { "R" };
     ContextButton ampButton { "NAM AMP" };   // instrument tracks: the instrument (right-click: change / remove)
     MonitorButton mon;
@@ -207,7 +208,7 @@ private:
     juce::Component holder;
     juce::OwnedArray<ChannelStrip> strips;
     // the main output: fixed at the right, it does not scroll with the strips
-    juce::Slider mainFader;
+    ScrollSafeSlider mainFader;
     MeterView mainMeterL, mainMeterR;
     std::unique_ptr<InsertList> mainInserts;
     juce::Viewport mainInsertView;
@@ -258,7 +259,7 @@ private:
         int startH = 0;
     } rackDivider { *this };
     void setRackHeight (int h);
-    juce::Slider fader;
+    ScrollSafeSlider fader;
     MeterView meterL, meterR;
     juce::Rectangle<int> masterBox, scale;
     juce::Label emptyLabel;

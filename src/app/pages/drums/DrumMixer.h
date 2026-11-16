@@ -1,4 +1,5 @@
 #pragma once
+#include "engine/fx/ScrollSafeSlider.h"
 #include "../../ProjectDocument.h"
 #include "../../EngineHost.h"
 #include "../../StudioLookAndFeel.h"
@@ -132,7 +133,7 @@ private:
         }
         DrumMixer& owner;
         int piece;
-        juce::Slider fader, pan;
+        ScrollSafeSlider fader, pan;
         juce::TextButton mute { "M" }, solo { "S" };
         juce::String tip;
         float level = -100.0f;
