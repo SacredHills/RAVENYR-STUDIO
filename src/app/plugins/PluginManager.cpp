@@ -457,7 +457,7 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
         if (editor != nullptr) plugin->editorBeingDeleted (editor.get());
         editor.reset();
     }
-    void closeButtonPressed() override { if (onClosed) juce::MessageManager::callAsync (onClosed); }
+    void closeButtonPressed() override { if (floating != nullptr) floating->aboutToHide(); if (onClosed) juce::MessageManager::callAsync (onClosed); }
     bool keyPressed (const juce::KeyPress& k) override { return globalkeys::forward (k) || juce::DocumentWindow::keyPressed (k); }
     void activeWindowStatusChanged() override { if (content != nullptr) content->refresh(); }
 

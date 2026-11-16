@@ -108,6 +108,7 @@ private:
         Status status;
         int generation = 0;
         std::array<int, rig::numPluginSlots> pluginGeneration {};
+        int irStuck = 0, irStuck2 = 0, irResends = 0, irResends2 = 0;   // cab IR that is loaded but never reached the convolution
     };
 
     struct InsertEntry

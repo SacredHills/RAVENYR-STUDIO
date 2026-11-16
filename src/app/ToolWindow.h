@@ -13,6 +13,8 @@ class FloatAboveApp
 public:
     explicit FloatAboveApp (juce::DocumentWindow& w);
     ~FloatAboveApp();
+    /** Call right before hiding the window (it is owned again when it is shown). */
+    void aboutToHide();
     /** The main application window the others float above (set once by the main component). */
     static void setMainWindow (juce::Component* main);
 private:
@@ -47,6 +49,7 @@ public:
     void closeButtonPressed() override
     {
         settings.setValue (key, getWindowStateAsString());
+        floating.aboutToHide();
         setVisible (false);
         if (onClosed) onClosed();
     }

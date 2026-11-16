@@ -70,6 +70,9 @@ public:
     std::atomic<bool> modelActive { false };                 // a NAM model is processing
     std::atomic<bool> modelNeedsPrepare { false };           // a model arrived prepared for another device rate
     std::atomic<bool> irActive { false }, irActive2 { false };
+    /** Length of the impulse response the convolution is really running (audio thread writes; -1 = not seen yet).
+        1 means the engine never received the loaded IR (it still holds JUCE's default unit impulse). */
+    std::atomic<int> irSizeSeen { -1 }, irSizeSeen2 { -1 };
     std::atomic<int> latency { 0 };                          // samples added by NAM resampling
     /** Everything the rig delays the sound by: NAM resampling + plugins that are switched on. Audio thread. */
     int totalLatency() const noexcept;

@@ -29,8 +29,17 @@ struct FloatAboveApp::Impl final : private juce::ComponentListener, private juce
     }
     ~Impl() override
     {
-        // Closing a plugin window must never take the DAW with it: let go of the owner first (so Windows does not
-        // route the closing through it), and if the main window ends up minimised by the close, bring it back
+        releaseOwner();
+        juce::Desktop::getInstance().removeFocusChangeListener (this);
+        win.removeComponentListener (this);
+        auto& v = floaters();
+        v.erase (std::remove (v.begin(), v.end(), &win), v.end());
+    }
+
+    /** Closing / hiding a window must never take the DAW with it: let go of the owner first (so Windows does not route
+        the closing through it), and if the main window ends up minimised by it, bring it back. */
+    void releaseOwner()
+    {
         auto* main = mainWin().getComponent();
         const bool mainWasMinimised = main != nullptr && main->getPeer() != nullptr && main->getPeer()->isMinimised();
 #if defined (_WIN32)
@@ -39,15 +48,13 @@ struct FloatAboveApp::Impl final : private juce::ComponentListener, private juce
         if (main != nullptr && ! mainWasMinimised)
         {
             juce::Component::SafePointer<juce::Component> sm (main);
-            juce::MessageManager::callAsync ([sm] {
+            auto restore = [sm] {
                 if (sm == nullptr) return;
                 if (auto* mp = sm->getPeer(); mp != nullptr && mp->isMinimised()) { mp->setMinimised (false); sm->toFront (true); }
-            });
+            };
+            juce::MessageManager::callAsync (restore);
+            juce::Timer::callAfterDelay (150, restore);   // Windows can minimise it a moment after the window is gone
         }
-        juce::Desktop::getInstance().removeFocusChangeListener (this);
-        win.removeComponentListener (this);
-        auto& v = floaters();
-        v.erase (std::remove (v.begin(), v.end(), &win), v.end());
     }
 
     void attachOwner()
@@ -82,6 +89,7 @@ struct FloatAboveApp::Impl final : private juce::ComponentListener, private juce
 
 FloatAboveApp::FloatAboveApp (juce::DocumentWindow& w) : impl (std::make_unique<Impl> (w)) {}
 FloatAboveApp::~FloatAboveApp() = default;
+void FloatAboveApp::aboutToHide() { if (impl != nullptr) impl->releaseOwner(); }
 
 void FloatAboveApp::setMainWindow (juce::Component* main)
 {
