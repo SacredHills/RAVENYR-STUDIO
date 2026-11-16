@@ -110,6 +110,7 @@ ChannelStrip::ChannelStrip (ProjectDocument& d, EngineHost& h, SessionController
     insertView.setScrollBarThickness (6);
     session.rigs().statusChanged.addChangeListener (this);
     track.addListener (this);
+    addMouseListener (&selectOnTouch, true);
     refresh();
 }
 
@@ -919,12 +920,23 @@ MiniMixer::MiniMixer (ProjectDocument& d, EngineHost& h, SessionController& sc, 
     mainInsertView.setScrollBarThickness (6);
     addAndMakeVisible (mainInsertView);
     doc.tree().addListener (this);
+    session.selectionChanged.addChangeListener (this);
     rebuild();
     startTimerHz (30);
 }
 
+void MiniMixer::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    for (auto* s : strips)
+    {
+        s->repaint();
+        if (session.isTrackSelected (s->getTrack())) view.setViewPosition (juce::jlimit (0, juce::jmax (0, holder.getWidth() - view.getWidth()), s->getX() - (view.getWidth() - s->getWidth()) / 2), 0);
+    }
+}
+
 MiniMixer::~MiniMixer()
 {
+    session.selectionChanged.removeChangeListener (this);
     doc.tree().removeListener (this);
     stopTimer();
     strips.clear();

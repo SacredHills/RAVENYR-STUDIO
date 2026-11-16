@@ -156,6 +156,14 @@ private:
     SessionController& session;
     juce::ValueTree track;
     int slot;
+    /** Touching anything on the strip (fader, pan, buttons...) selects its track, as clicking the background does. */
+    struct SelectOnTouch : juce::MouseListener
+    {
+        SelectOnTouch (SessionController& s, juce::ValueTree t) : session (s), track (t) {}
+        void mouseDown (const juce::MouseEvent& e) override { if (! e.mods.isPopupMenu() && ! session.isTrackSelected (track)) session.clickTrack (track, {}); }
+        SessionController& session;
+        juce::ValueTree track;
+    } selectOnTouch { session, track };
     juce::Slider fader, pan;
     juce::TextButton mute { "M" }, solo { "S" }, arm { "R" };
     ContextButton ampButton { "NAM AMP" };   // instrument tracks: the instrument (right-click: change / remove)
@@ -182,7 +190,8 @@ private:
 
 /** The pop-up mixer on the editor page: a channel strip per track with its fader, pan, mute / solo and plugin list
     (no rack), scrolling sideways. */
-class MiniMixer : public juce::Component, public juce::DragAndDropContainer, private juce::Timer, private juce::ValueTree::Listener
+class MiniMixer : public juce::Component, public juce::DragAndDropContainer, private juce::Timer, private juce::ValueTree::Listener,
+                  private juce::ChangeListener
 {
 public:
     MiniMixer (ProjectDocument&, EngineHost&, SessionController&, juce::PropertiesFile&);
@@ -207,6 +216,7 @@ private:
     bool rebuildPending = false;
     void rebuild();
     void timerCallback() override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;   // a track was selected in the editor
     void valueTreeChildAdded (juce::ValueTree& p, juce::ValueTree& c) override { if (c.hasType (timeline::ids::TRACK) || p.hasType (timeline::ids::TRACK)) rebuildPending = true; }
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree& c, int) override { if (c.hasType (timeline::ids::TRACK)) rebuildPending = true; }
     void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { rebuildPending = true; }

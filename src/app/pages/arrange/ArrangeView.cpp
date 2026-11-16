@@ -2545,6 +2545,18 @@ void ArrangeView::changeListenerCallback (juce::ChangeBroadcaster* source)
         for (auto& c : session.justRecorded)
             if (c.getParent().isValid()) selection.addIfNotAlreadyThere (c);
     }
+    if (source == &session.selectionChanged && ! session.selectedTracks.isEmpty())   // selected in the mixer: bring it into view
+    {
+        const int i = doc.tracks().indexOf (session.selectedTracks.getFirst());
+        if (i >= 0 && i < numTracks())
+        {
+            const int top = geo.topOf (i), h = geo.heightOf (i), view = canvas.getHeight();
+            if (top < geo.scrollY) geo.scrollY = top;
+            else if (top + h > geo.scrollY + view && view > 0) geo.scrollY = juce::jmax (0, top + h - view);
+            updateScrollBars();
+            layoutHeaders();
+        }
+    }
     for (auto* h : headers) h->repaint();
     canvas.repaint();
 }
