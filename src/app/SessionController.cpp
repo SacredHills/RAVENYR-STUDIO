@@ -1263,6 +1263,19 @@ void SessionController::openDrumInstrument()
     }
 }
 
+void SessionController::openDrumInstrumentWhenLoaded (const juce::String& desc, int triesLeft)
+{
+    const auto st = rigBank->drumInstrumentStatus();
+    if (st.desc == desc && st.error.isNotEmpty()) { if (onError) onError ("Drum instrument", st.error); return; }
+    if (st.desc == desc && st.loaded && rigBank->drumInstrumentPlugin() != nullptr) { openDrumInstrument(); return; }
+    if (triesLeft <= 0) return;
+    std::weak_ptr<bool> alive = life;
+    juce::Timer::callAfterDelay (150, [this, alive, desc, triesLeft] {
+        if (alive.lock() == nullptr) return;
+        openDrumInstrumentWhenLoaded (desc, triesLeft - 1);
+    });
+}
+
 void SessionController::showDrumInstrumentMenu (juce::Component* target)
 {
     if (plugins == nullptr) return;
@@ -1297,7 +1310,7 @@ void SessionController::showDrumInstrumentMenu (juce::Component* target)
         }
         juce::String name;
         const auto desc = plugins->descriptionForMenuResult (r, PluginManager::instrumentMenu, name);
-        if (desc.isNotEmpty()) setDrumInstrument (desc, name);
+        if (desc.isNotEmpty()) { setDrumInstrument (desc, name); openDrumInstrumentWhenLoaded (desc); }
     });
 }
 

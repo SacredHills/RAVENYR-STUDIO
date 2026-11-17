@@ -107,6 +107,14 @@ void AudioEngine::renderTab (float* const* bus, int numBus, int offset, int len)
     juce::FloatVectorOperations::clear (L, len);
     juce::FloatVectorOperations::clear (R, len);
 
+    if (drumInstPanic)   // after a jump or stop: let go of every drum note, before this block's hits (the first one may be at the very start)
+    {
+        drumInstPanic = false;
+        drumOffN = 0;
+        drumEvN = 0;
+        for (int n = 0; n < 128; ++n) if (drums::pieceForGmNote (n) >= 0) drumMidiAdd (0, 0x89, (juce::uint8) n, 0);
+    }
+
     if (tabNeedsSeek && tabSeq != nullptr)
     {
         const double t = (double) pos / sr - 1.0e-9;
@@ -219,13 +227,6 @@ void AudioEngine::renderTab (float* const* bus, int numBus, int offset, int len)
         if (! useInst) { drumEvN = 0; drumOffN = 0; }
         else
         {
-            if (drumInstPanic)
-            {
-                drumInstPanic = false;
-                drumOffN = 0;
-                drumEvN = 0;
-                for (int n = 0; n < 128; ++n) if (drums::pieceForGmNote (n) >= 0) drumMidiAdd (0, 0x89, (juce::uint8) n, 0);
-            }
             for (int i = 0; i < drumOffN;)
                 if (drumOffs[(size_t) i].at < pos + len)
                 {

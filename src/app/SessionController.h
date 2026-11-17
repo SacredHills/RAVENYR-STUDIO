@@ -166,6 +166,9 @@ public:
     void setDrumInstrument (const juce::String& descXml, const juce::String& name);
     void removeDrumInstrument();
     void openDrumInstrument();
+    /** Opens the Drum Studio instrument's window as soon as `descXml` has finished loading (gives up after a while). */
+    void openDrumInstrumentWhenLoaded (const juce::String& descXml, int triesLeft = 100);
+    std::shared_ptr<bool> life = std::make_shared<bool> (true);
     void showDrumInstrumentMenu (juce::Component* target);
     juce::String instrumentName (const juce::ValueTree& track) const;
 

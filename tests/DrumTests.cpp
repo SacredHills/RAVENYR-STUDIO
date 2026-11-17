@@ -489,6 +489,7 @@ struct DrumTests : juce::UnitTest
                 e.submitTabSequence (buildDrumSequence (dr, pat, 120.0));
                 std::vector<float> l (512), r (512), all;
                 float* outs[2] = { l.data(), r.data() };
+                e.returnToZero();   // play from the start: a jump in the same block as the first hit must not eat it
                 e.play();
                 for (int i = 0; i < (int) (2.0 * sr / 512); ++i)
                 {
