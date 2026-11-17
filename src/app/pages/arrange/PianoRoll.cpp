@@ -436,13 +436,15 @@ void PianoRoll::fit()
 {
     const auto g = gridArea();
     double a = clipStart(), b = clipEnd();
+    for (auto& n : notes) { a = juce::jmin (a, absStart (n)); b = juce::jmax (b, absStart (n) + n.length); }   // notes outside the clip too
     int lo = 60, hi = 72;
-    if (midiclip::pitchRange (notes, lo, hi)) {}
-    pps = juce::jlimit (10.0, 4000.0, (g.getWidth() - 20.0) / juce::jmax (0.25, b - a));
-    scrollT = a - 10.0 / pps;
-    const int rows = juce::jmax (12, hi - lo + 5);
-    keyH = juce::jlimit (6.0f, 24.0f, (float) g.getHeight() / (float) rows);
-    topPitch = (float) juce::jmin (127, hi + 2 + juce::jmax (0, ((int) (g.getHeight() / keyH) - rows) / 2));
+    midiclip::pitchRange (notes, lo, hi);
+    pps = juce::jlimit (4.0, 4000.0, (g.getWidth() - 30.0) / juce::jmax (0.25, b - a));
+    scrollT = a - 15.0 / pps;
+    const int rows = juce::jmax (12, hi - lo + 3);   // a row of room above and below
+    keyH = juce::jlimit (2.5f, 24.0f, (float) g.getHeight() / (float) rows);
+    const int visible = (int) std::floor (g.getHeight() / keyH);
+    topPitch = (float) juce::jlimit (visible - 1, 127, hi + 1 + juce::jmax (0, (visible - (hi - lo + 1)) / 2));
     repaint();
 }
 
@@ -816,6 +818,9 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
     if (! e.mods.isShiftDown()) std::fill (selected.begin(), selected.end(), 0);
     drag = Drag::marquee;
     marquee = {};
+    marqT0 = timeFor (e.position.x);
+    marqP0 = topPitch - (e.position.y - (float) gridArea().getY()) / keyH;
+    beginDragAutoRepeat (25);   // keeps scrolling while the mouse is held at the edge
     updateInfo();
     repaint();
 }
@@ -887,12 +892,22 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
                 if (selected[i]) notes[i].velocity = juce::jlimit (1, 127, origs[i].velocity + delta);
             velTip = notes[(size_t) anchor].velocity;
             velTipPos = e.position;
-            commit();
+            repaint();   // the clip itself is written when the mouse is released (rewriting every note on each move made it lag)
             break;
         }
         case Drag::marquee:
         {
-            marquee = juce::Rectangle<float> (downPos, e.position);
+            const auto g = gridArea();
+            const float edge = 28.0f;
+            auto speed = [] (float over) { return juce::jlimit (3.0f, 40.0f, over * 0.5f); };   // pixels per tick, faster the further out
+            if (e.position.x > (float) g.getRight() - edge) scrollT += speed (e.position.x - ((float) g.getRight() - edge)) / pps;
+            else if (e.position.x < (float) g.getX() + edge) scrollT -= speed (((float) g.getX() + edge) - e.position.x) / pps;
+            if (e.position.y < (float) g.getY() + edge) topPitch = juce::jmin (127.0f, topPitch + speed (((float) g.getY() + edge) - e.position.y) / keyH);
+            else if (e.position.y > (float) g.getBottom() - edge) topPitch = juce::jmax (g.getHeight() / keyH - 1.0f, topPitch - speed (e.position.y - ((float) g.getBottom() - edge)) / keyH);
+            updateScrollBars();
+            const juce::Point<float> start (xFor (marqT0), (float) g.getY() + (topPitch - marqP0) * keyH);
+            const juce::Point<float> cur (juce::jlimit ((float) g.getX(), (float) g.getRight(), e.position.x), juce::jlimit ((float) g.getY(), (float) g.getBottom(), e.position.y));
+            marquee = juce::Rectangle<float> (start, cur);
             for (size_t i = 0; i < notes.size(); ++i)
                 if (noteRect (notes[i]).intersects (marquee)) selected[i] = 1;
                 else if (! e.mods.isShiftDown()) selected[i] = 0;
@@ -906,6 +921,7 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
 
 void PianoRoll::mouseUp (const juce::MouseEvent&)
 {
+    if (drag == Drag::velocity) commit();
     stopAudition();
     marquee = {};
     velTip = -1;

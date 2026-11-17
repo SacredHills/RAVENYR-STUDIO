@@ -69,6 +69,8 @@ private:
     std::vector<Orig> origs;
     int anchor = -1;
     juce::Point<float> downPos;
+    double marqT0 = 0.0;   // where the marquee started, in time / pitch, so it stays put while the view auto-scrolls
+    float marqP0 = 0.0f;
     juce::Rectangle<float> marquee;
     int keyboardNote = -1;
     int hoverPitch = -1;   // pitch row under the mouse (keyboard or grid): its name is shown on the key
