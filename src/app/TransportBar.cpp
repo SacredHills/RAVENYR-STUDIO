@@ -185,8 +185,8 @@ TransportBar::TransportBar (EngineHost& h, ProjectDocument& d, juce::PropertiesF
     : host (h), doc (d), inMeter (h.engine.inputMeter, false), outL (h.engine.outputMeterL, false),
       outR (h.engine.outputMeterR, false), tunerDisplay (h, settings)
 {
-    rtzButton.onClick = [this] { host.engine.returnToZero(); };
-    playButton.onClick = [this] { host.engine.togglePlay(); };
+    rtzButton.onClick = [this] { if (onReturnToStart) onReturnToStart(); else host.engine.returnToZero(); };
+    playButton.onClick = [this] { if (onPlayStop) onPlayStop(); else host.engine.togglePlay(); };
     clickButton.onClick = [this] { toggleClick(); };
     recordButton.onClick = [this] { if (onRecord) onRecord(); };
     loopButton.onClick = [this] { toggleLoop(); };

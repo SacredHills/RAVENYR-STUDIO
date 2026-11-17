@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_gui_extra/juce_gui_extra.h>
+#include <unordered_set>
 #include "../../ProjectDocument.h"
 #include "../../EngineHost.h"
 #include "../../SessionController.h"
@@ -24,6 +25,12 @@ public:
     std::function<void (int lane)> onLaneMenu;       // right-click on a lane name
     std::function<void (double q)> onSeek;           // click on the bar-number strip at the top
     void setStartQ (double q) { startQ = q; repaint(); }
+    /** Select tool: plain drag on empty space draws a selection box (Ctrl / Cmd-drag does that in the normal tool too). */
+    void setSelectTool (bool on) { selectTool = on; }
+    bool getSelectTool() const { return selectTool; }
+    void clearSelection() { if (! selected.isEmpty()) { selected.clear(); repaint(); } }
+    int numSelected() const { return selected.size(); }
+    bool keyPressed (const juce::KeyPress&) override;
     double getStartQ() const { return startQ; }
     std::function<bool (int lane)> laneHasSample;
 
@@ -41,7 +48,20 @@ private:
     double playQ = -1.0, startQ = 0.0;
     float cellW = 24.0f;
 
-    enum class Drag { none, velocity, paint, erase, seek } drag = Drag::none;
+    enum class Drag { none, velocity, paint, erase, seek, marquee, move } drag = Drag::none;
+    bool selectTool = false;
+    juce::Array<juce::ValueTree> selected;
+    struct Origin { juce::ValueTree hit; int tick, lane; };
+    std::vector<Origin> origins;
+    juce::Rectangle<int> marquee;
+    juce::Array<juce::ValueTree> marqueeBase;   // the selection before a Shift-marquee
+    bool isSelected (const juce::ValueTree& h) const { return selected.contains (h); }
+    std::unordered_set<int> selKeys;   // lane * 10000000 + tick of every selected hit (for painting)
+    void rebuildSelKeys();
+    void snapshotOrigins();
+    void selectInRect (juce::Rectangle<int>, bool add);
+    void moveSelected (int dTicks, int dLanes);
+    void dropOverlaps();
     juce::ValueTree dragHit;
     int dragStartVel = 100, dragLane = -1, paintVel = 100;
     bool moved = false;
@@ -78,6 +98,8 @@ public:
     void rebind();
     void setActive (bool);
     void togglePlay();
+    /** Back to the start of the pattern (or song); keeps playing if it was playing. */
+    void goToStart();
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -100,8 +122,8 @@ private:
     juce::TextButton newButton { "New" }, dupButton { "Duplicate" }, renameButton { "Rename" }, deleteButton { "Delete" };
     juce::Slider swingSlider, tempoSlider;
     juce::Label swingLabel, tempoLabel;
-    PagePlayButton playButton { "Pattern", palette::accent }, playSongButton { "Song", palette::accent };
-    juce::TextButton loopButton { "Loop" }, clickButton { "Click" };
+    juce::TextButton backButton { "|<" }, patternModeButton { "Pattern" }, songModeButton { "Song" }, loopButton { "Loop" }, clickButton { "Click" }, selectButton { "Select" };
+    void startPlayback();
     // row 2: generator & output
     juce::ComboBox genreCombo;
     juce::TextButton halfButton { "Half-time" }, fillButton { "Fill" }, crashButton { "Crash on 1" };

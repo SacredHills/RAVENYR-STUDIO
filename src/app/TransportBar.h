@@ -64,6 +64,7 @@ public:
     /** What the audio engine's time is spent on (clicking the CPU readout shows it). Set by the owner of the rig bank. */
     std::function<std::vector<fx::RigBank::CpuRow>()> cpuRows;
     std::function<void()> onSettings;
+    std::function<void()> onPlayStop, onReturnToStart;   // the page in front decides what play / return-to-start do (else the arrangement)
     void setSettingsActive (bool on) { settingsButton.setToggleState (on, juce::dontSendNotification); }
     void mouseUp (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;

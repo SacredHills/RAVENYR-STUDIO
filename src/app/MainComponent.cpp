@@ -114,6 +114,8 @@ MainComponent::MainComponent (juce::PropertiesFile& s) : settings (s)
     nav.implemented = { true, true, true, true, true, true, true };
     nav.hidden = settingsSection;
     transport->onSettings = [this] { showSection (settingsSection); };
+    transport->onPlayStop = [this] { togglePlayForSection(); };
+    transport->onReturnToStart = [this] { returnToStartForSection(); };
     nav.onSelect = [this] (int i) { showSection (i); };
     addAndMakeVisible (nav);
     for (auto* p : pages)
@@ -360,6 +362,20 @@ void MainComponent::resized()
     pagesArea = r;
     layoutPages();
     loadingOverlay.setBounds (getLocalBounds());
+}
+
+void MainComponent::togglePlayForSection()
+{
+    if (currentSection == tabsSection) tabPage->togglePlay();
+    else if (currentSection == drumSection) drumPage->togglePlay();
+    else if (currentSection == trainingSection) trainingPage->togglePlay();
+    else host.engine.togglePlay();
+}
+
+void MainComponent::returnToStartForSection()
+{
+    if (currentSection == drumSection) drumPage->goToStart();
+    else host.engine.returnToZero();
 }
 
 void MainComponent::layoutPages()
@@ -745,8 +761,8 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdReveal: if (doc->hasLocation()) doc->getBundle().revealToUser(); return true;
         case cmdUndo: pluginManager->commitPendingChanges(); doc->undo().undo(); return true;
         case cmdRedo: pluginManager->commitPendingChanges(); doc->undo().redo(); return true;
-        case cmdPlayStop: if (currentSection == tabsSection) tabPage->togglePlay(); else if (currentSection == drumSection) drumPage->togglePlay(); else if (currentSection == trainingSection) trainingPage->togglePlay(); else host.engine.togglePlay(); return true;
-        case cmdReturnToZero: host.engine.returnToZero(); return true;
+        case cmdPlayStop: togglePlayForSection(); return true;
+        case cmdReturnToZero: returnToStartForSection(); return true;
         case cmdBackToPlayStart:
         {
             const auto now = juce::Time::getMillisecondCounter();

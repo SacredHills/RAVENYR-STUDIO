@@ -135,6 +135,8 @@ private:
 
     void showSection (int index);
     void layoutPages();
+    void togglePlayForSection();
+    void returnToStartForSection();
     juce::Rectangle<int> pagesArea;
     void updateTitleAndStatus();
     void timerCallback() override;
