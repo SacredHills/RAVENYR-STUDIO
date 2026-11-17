@@ -100,7 +100,7 @@ MainComponent::MainComponent (juce::PropertiesFile& s) : settings (s)
     settingsPage = std::make_unique<SettingsPage> (host, *doc, settings);
 
     tabPage = std::make_unique<TabPage> (*doc, host, settings);
-    drumPage = std::make_unique<DrumPage> (*doc, host, *session, settings);
+    drumPage = std::make_unique<MidiStudioPage> (*doc, host, *session, settings);
     trainingPage = std::make_unique<TrainingPage> (host, *doc, settings);
     effectsPage = std::make_unique<RigEditor> (*doc, host, *session, settings);
     t3kClient = std::make_unique<t3k::Client> (settings);

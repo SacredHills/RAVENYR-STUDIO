@@ -1514,6 +1514,7 @@ void DrumPage::resized()
         loopButton.setBounds (grp.removeFromLeft (50)); grp.removeFromLeft (4);
         clickButton.setBounds (grp.removeFromLeft (54));
     }
+    row0.removeFromLeft (156);   // room for the Drums | Keys tabs (MidiStudioPage)
     instrumentButton.setBounds (row0.removeFromLeft (108)); row0.removeFromLeft (4);
     mixerButton.setBounds (row0.removeFromLeft (64));
     renderButton.setBounds (row0.removeFromRight (116)); row0.removeFromRight (4);

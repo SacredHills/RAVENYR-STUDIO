@@ -94,6 +94,7 @@ target_sources(ff_core PRIVATE
     src/core/ProjectFile.cpp
     src/core/Timeline.cpp
     src/core/MidiClip.cpp
+    src/core/KeysGen.cpp
     src/core/Automation.cpp
     src/core/TabModel.cpp
     src/core/Exercises.cpp
@@ -195,6 +196,7 @@ target_sources(Ravenyr PRIVATE
     src/app/pages/tabs/NotationGlyphs.cpp
     src/app/pages/tabs/ScorePdf.cpp
     src/app/pages/drums/DrumPage.cpp
+    src/app/pages/keys/KeysPage.cpp
     src/app/pages/training/TrainingPage.cpp
     src/app/pages/fx/RigEditor.cpp
     src/app/tone3000/Tone3000.cpp
@@ -239,6 +241,7 @@ if(FF_BUILD_TESTS)
         tests/GuitarProTests.cpp
         tests/MusicXmlTests.cpp
         tests/DrumTests.cpp
+        tests/KeysGenTests.cpp
         tests/AmpRigTests.cpp
         tests/RoutingTests.cpp
         tests/BuiltinPluginTests.cpp

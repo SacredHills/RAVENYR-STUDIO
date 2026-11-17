@@ -112,6 +112,9 @@ private:
     int trackIndex() const;
     void quantize();
     void fit();
+public:
+    void fitView() { fit(); }
+private:
     void deleteSelected();
     void copySelected();
     void pasteAt (double timelineSec);     // the clipboard's first note lands here
