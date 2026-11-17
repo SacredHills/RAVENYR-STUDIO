@@ -25,9 +25,6 @@ public:
     std::function<void (int lane)> onLaneMenu;       // right-click on a lane name
     std::function<void (double q)> onSeek;           // click on the bar-number strip at the top
     void setStartQ (double q) { startQ = q; repaint(); }
-    /** Select tool: plain drag on empty space draws a selection box (Ctrl / Cmd-drag does that in the normal tool too). */
-    void setSelectTool (bool on) { selectTool = on; }
-    bool getSelectTool() const { return selectTool; }
     void clearSelection() { if (! selected.isEmpty()) { selected.clear(); repaint(); } }
     int numSelected() const { return selected.size(); }
     bool keyPressed (const juce::KeyPress&) override;
@@ -39,7 +36,8 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
 
-    static constexpr int laneHeight = 22, nameWidth = 112, headerHeight = 24;
+    static constexpr int laneHeight = 22, nameWidth = 112, headerHeight = 24, velLaneHeight = 84;
+    static int velTop() { return headerHeight + (int) drums::numPieces * laneHeight + 12; }
 
 private:
     ProjectDocument& doc;
@@ -49,10 +47,9 @@ private:
     float cellW = 24.0f;
 
     enum class Drag { none, velocity, paint, erase, seek, marquee, move } drag = Drag::none;
-    bool selectTool = false;
     juce::Array<juce::ValueTree> selected;
     struct Origin { juce::ValueTree hit; int tick, lane; };
-    std::vector<Origin> origins;
+    std::vector<Origin> origins, velOrigins;   // velOrigins: `tick` holds the hit's starting velocity
     juce::Rectangle<int> marquee;
     juce::Array<juce::ValueTree> marqueeBase;   // the selection before a Shift-marquee
     bool isSelected (const juce::ValueTree& h) const { return selected.contains (h); }
@@ -122,7 +119,7 @@ private:
     juce::TextButton newButton { "New" }, dupButton { "Duplicate" }, renameButton { "Rename" }, deleteButton { "Delete" };
     juce::Slider swingSlider, tempoSlider;
     juce::Label swingLabel, tempoLabel;
-    juce::TextButton backButton { "|<" }, patternModeButton { "Pattern" }, songModeButton { "Song" }, loopButton { "Loop" }, clickButton { "Click" }, selectButton { "Select" };
+    juce::TextButton backButton { "|<" }, patternModeButton { "Pattern" }, songModeButton { "Song" }, loopButton { "Loop" }, clickButton { "Click" };
     void startPlayback();
     // row 2: generator & output
     juce::ComboBox genreCombo;

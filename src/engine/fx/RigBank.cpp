@@ -849,7 +849,7 @@ std::vector<RigBank::CpuRow> RigBank::cpuBreakdown() const
     }
     for (const auto& [id, e] : instruments)
         if (e.slot != nullptr)
-            add (e.node.getParent().hasType (drums::ids::DRUMS) ? juce::String ("Drum Studio") : trackName (e.node.getParent()), e.status.name.isNotEmpty() ? e.status.name : (e.slot->getPlugin() != nullptr ? e.slot->getPlugin()->getName() : juce::String ("Instrument")),
+            add (e.node.getParent().hasType (drums::ids::DRUMS) ? juce::String ("MIDI Studio") : trackName (e.node.getParent()), e.status.name.isNotEmpty() ? e.status.name : (e.slot->getPlugin() != nullptr ? e.slot->getPlugin()->getName() : juce::String ("Instrument")),
                  e.slot->cpuLoad.load());
     std::sort (rows.begin(), rows.end(), [] (const CpuRow& a, const CpuRow& b) { return a.load > b.load; });
     return rows;

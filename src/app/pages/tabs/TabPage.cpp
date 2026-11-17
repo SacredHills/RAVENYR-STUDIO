@@ -73,7 +73,7 @@ TabPage::TabPage (ProjectDocument& d, EngineHost& h, juce::PropertiesFile& s)
     notationButton.onClick = [this] { doc.set (score, tids::notation, notationButton.getToggleState(), false); editor.grabKeyboardFocus(); };
     drumsButton.setClickingTogglesState (true);
     drumsButton.setToggleState (settings.getBoolValue ("tabDrums", false), juce::dontSendNotification);
-    drumsButton.setTooltip ("Play the Drum Studio song along with the tab (bar 1 of the drum song = bar 1 of the score)");
+    drumsButton.setTooltip ("Play the MIDI Studio drum song along with the tab (bar 1 of the drum song = bar 1 of the score)");
     drumsButton.onClick = [this] { settings.setValue ("tabDrums", drumsButton.getToggleState()); rebuildSequence(); editor.grabKeyboardFocus(); };
     midiButton.setClickingTogglesState (true);
     midiButton.setTooltip ("Enter notes from a MIDI keyboard or MIDI guitar: play a note or chord to write it at the cursor");

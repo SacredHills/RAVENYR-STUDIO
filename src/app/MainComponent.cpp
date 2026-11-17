@@ -108,7 +108,7 @@ MainComponent::MainComponent (juce::PropertiesFile& s) : settings (s)
         if (ed != nullptr) openTone3000 (*ed, cab);
     });
 
-    const juce::StringArray names { "Editor", "Mixer", "Drum Studio", "Guitar Tabs", "Training", "Effects & Amps", "Settings" };
+    const juce::StringArray names { "Editor", "Mixer", "MIDI Studio", "Guitar Tabs", "Training", "Effects & Amps", "Settings" };
     pages = { studioPage.get(), mixerPage.get(), drumPage.get(), tabPage.get(), trainingPage.get(), effectsPage.get(), settingsPage.get() };
     nav.names = names;
     nav.implemented = { true, true, true, true, true, true, true };

@@ -1254,7 +1254,7 @@ void SessionController::openDrumInstrument()
         bc.toggle = [this] {
             if (auto in = drumInstrumentNode(); in.isValid()) in.setProperty (rig::ids::bypass, ! (bool) in[rig::ids::bypass], &doc.undo());
         };
-        plugins->showEditor (p, "Drum Studio - " + drumInstrumentNode()[rig::ids::name].toString(), bc);
+        plugins->showEditor (p, "MIDI Studio - " + drumInstrumentNode()[rig::ids::name].toString(), bc);
     }
     else
     {

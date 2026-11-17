@@ -64,7 +64,7 @@ void DrumGrid::updateSize (int visibleWidth)
 {
     const int n = steps();
     cellW = juce::jlimit (12.0f, 44.0f, (float) (visibleWidth - nameWidth - 10) / (float) n);
-    setSize (juce::jmax (visibleWidth, nameWidth + (int) std::ceil (cellW * (float) n) + 10), headerHeight + drums::numPieces * laneHeight + 6);
+    setSize (juce::jmax (visibleWidth, nameWidth + (int) std::ceil (cellW * (float) n) + 10), velTop() + velLaneHeight + 8);
 }
 
 juce::ValueTree DrumGrid::hitInCell (int lane, int step) const
@@ -105,6 +105,9 @@ void DrumGrid::paint (juce::Graphics& g)
             g.drawText (juce::String (drums::pieceInfo (l).name) + (sampled ? " *" : ""), x0 + 10, y, nameWidth - 14, laneHeight,
                         juce::Justification::centredLeft);
         }
+        g.setColour (palette::textDim);
+        g.setFont (uiFont (11.0f));
+        g.drawText ("Velocity", x0 + 10, velTop() - 2, nameWidth - 14, 16, juce::Justification::centredLeft);
     };
     if (! pat.isValid())
     {
@@ -169,6 +172,28 @@ void DrumGrid::paint (juce::Graphics& g)
         {
             g.setColour (palette::text);
             g.drawRoundedRectangle (cell.expanded (1.0f), 3.5f, 1.6f);
+        }
+    }
+    {
+        // velocity lane under the grid
+        const int vt = velTop();
+        g.setColour (palette::well);
+        g.fillRect (0, vt - 4, (int) gridRight, velLaneHeight + 8);
+        g.setColour (palette::outline);
+        g.drawHorizontalLine (vt - 4, 0.0f, gridRight);
+        for (auto h : pat)
+        {
+            const int lane = (int) h[dids::lane];
+            if (! juce::isPositiveAndBelow (lane, lanes)) continue;
+            const float bx = (float) nameWidth + cellW * (float) (int) h[dids::tick] / (float) st + cellW * 0.5f;
+            if (bx < (float) clip.getX() - 8.0f || bx > (float) clip.getRight() + 8.0f) continue;
+            const float v = juce::jlimit (1, 127, (int) h[dids::vel]) / 127.0f;
+            const float bh = v * (float) velLaneHeight;
+            const bool isSel = ! selKeys.empty() && selKeys.count (lane * 10000000 + (int) h[dids::tick]) > 0;
+            g.setColour (laneColour (lane).withAlpha (isSel ? 1.0f : 0.8f));
+            g.fillRect (bx - 2.0f, (float) vt + (float) velLaneHeight - bh, 4.0f, bh);
+            g.fillEllipse (bx - 4.0f, (float) vt + (float) velLaneHeight - bh - 4.0f, 8.0f, 8.0f);
+            if (isSel) { g.setColour (palette::text); g.drawEllipse (bx - 4.5f, (float) vt + (float) velLaneHeight - bh - 4.5f, 9.0f, 9.0f, 1.2f); }
         }
     }
     if (! marquee.isEmpty())
@@ -296,7 +321,9 @@ void DrumGrid::mouseDown (const juce::MouseEvent& e)
     drag = Drag::none;
     marquee = {};
     moved = false;
-    if (e.y < headerHeight && e.x >= juce::jmax (0, -getX()) + nameWidth && pat.isValid())
+    grabKeyboardFocus();
+    const int nameEdge = juce::jmax (0, -getX()) + nameWidth;
+    if (e.y < headerHeight && e.x >= nameEdge && pat.isValid())
     {
         // bar-number strip: set the play position (snapped to the grid; Alt = no snap)
         const double st = drums::stepTicks (pat);
@@ -307,9 +334,40 @@ void DrumGrid::mouseDown (const juce::MouseEvent& e)
         drag = Drag::seek;
         return;
     }
+    if (pat.isValid() && e.y >= velTop() - 4 && e.x >= nameEdge)
+    {
+        // velocity lane: drag a bar to set its hit's velocity (every selected hit follows)
+        juce::ValueTree best;
+        int bestDist = 1 << 30;
+        const int st = drums::stepTicks (pat);
+        for (auto h : pat)
+        {
+            const int bx = nameWidth + (int) (cellW * (float) (int) h[dids::tick] / (float) st + cellW * 0.5f);
+            if (std::abs (e.x - bx) > juce::jmax (5, (int) (cellW * 0.5f))) continue;
+            const int top = velTop() + velLaneHeight - (int) (juce::jlimit (1, 127, (int) h[dids::vel]) / 127.0f * velLaneHeight);
+            const int d = std::abs (e.y - top);
+            if (d < bestDist) { bestDist = d; best = h; }
+        }
+        if (! best.isValid()) return;
+        if (selKeys.count ((int) best[dids::lane] * 10000000 + (int) best[dids::tick]) == 0)
+        {
+            if (! e.mods.isShiftDown()) selected.clear();
+            selected.add (best);
+            rebuildSelKeys();
+        }
+        doc.undo().beginNewTransaction ("Drum velocity");
+        velOrigins.clear();
+        for (auto& h : selected) if (h.getParent() == pat) velOrigins.push_back ({ h, (int) h[dids::vel], 0 });
+        dragHit = best;
+        dragStartVel = (int) best[dids::vel];
+        drag = Drag::velocity;
+        beginDragAutoRepeat (25);
+        mouseDrag (e);
+        return;
+    }
     const int lane = laneAt (e.y);
     if (! juce::isPositiveAndBelow (lane, (int) drums::numPieces) || e.y < headerHeight) return;
-    if (e.x < juce::jmax (0, -getX()) + nameWidth)
+    if (e.x < nameEdge)
     {
         if (e.mods.isPopupMenu()) { if (onLaneMenu) onLaneMenu (lane); }
         else host.engine.previewDrum (lane, 0.9f);
@@ -319,7 +377,6 @@ void DrumGrid::mouseDown (const juce::MouseEvent& e)
     const int step = stepAt (e.x);
     if (! juce::isPositiveAndBelow (step, steps())) return;
     auto hit = hitInCell (lane, step);
-    juce::ignoreUnused (hit);
 
     if (e.mods.isPopupMenu())
     {
@@ -341,52 +398,53 @@ void DrumGrid::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    const bool cmd = e.mods.isCommandDown() || e.mods.isCtrlDown();
-    if (cmd || selectTool || (hit.isValid() && selKeys.count (lane * 10000000 + (int) hit[dids::tick]) > 0))
+    beginDragAutoRepeat (25);
+    const bool hitSelected = hit.isValid() && selKeys.count (lane * 10000000 + (int) hit[dids::tick]) > 0;
+    if (e.getNumberOfClicks() >= 2)
     {
-        grabKeyboardFocus();
-        beginDragAutoRepeat (25);
-        const bool hitSelected = hit.isValid() && selKeys.count (lane * 10000000 + (int) hit[dids::tick]) > 0;
-        if (hit.isValid() && ! cmd)
+        // double-click: add a hit on an empty cell (Shift = ghost, Alt = accent), delete the one under the pointer
+        if (hit.isValid())
         {
-            if (selectTool && e.mods.isShiftDown())   // Shift-click toggles one hit in the selection
-            {
-                if (hitSelected) selected.removeFirstMatchingValue (hit); else selected.add (hit);
-                rebuildSelKeys();
-                repaint();
-                return;
-            }
-            if (! hitSelected) { selected.clear(); selected.add (hit); rebuildSelKeys(); }
-            doc.undo().beginNewTransaction ("Move drum hits");
-            snapshotOrigins();
-            dragHit = hit;
-            drag = Drag::move;
-            repaint();
-            return;
+            doc.undo().beginNewTransaction ("Delete drum hit");
+            selected.removeFirstMatchingValue (hit);
+            hit.getParent().removeChild (hit, &doc.undo());
         }
-        // a selection box (Shift adds to the selection)
-        marqueeBase = e.mods.isShiftDown() ? selected : juce::Array<juce::ValueTree>();
-        selected = marqueeBase;
+        else
+        {
+            paintVel = e.mods.isShiftDown() ? 40 : e.mods.isAltDown() ? 127 : 100;
+            doc.undo().beginNewTransaction ("Add drum hit");
+            drums::setHit (pat, lane, step * drums::stepTicks (pat), paintVel, &doc.undo());
+            host.engine.previewDrum (lane, paintVel / 127.0f);
+        }
         rebuildSelKeys();
-        marquee = { e.getPosition(), e.getPosition() };
-        drag = Drag::marquee;
         repaint();
         return;
     }
-    if (! selected.isEmpty()) { selected.clear(); selKeys.clear(); repaint(); }
-    doc.undo().beginNewTransaction ("Edit drums");
     if (hit.isValid())
     {
-        drag = Drag::velocity;
+        if (e.mods.isShiftDown())   // Shift-click toggles a hit in the selection
+        {
+            if (hitSelected) selected.removeFirstMatchingValue (hit); else selected.add (hit);
+            rebuildSelKeys();
+            repaint();
+            return;
+        }
+        if (! hitSelected) { selected.clear(); selected.add (hit); rebuildSelKeys(); }
+        host.engine.previewDrum (lane, juce::jlimit (1, 127, (int) hit[dids::vel]) / 127.0f);
+        doc.undo().beginNewTransaction ("Move drum hits");
+        snapshotOrigins();
         dragHit = hit;
-        dragStartVel = (int) hit[dids::vel];
+        drag = Drag::move;
+        repaint();
         return;
     }
-    paintVel = e.mods.isShiftDown() ? 40 : e.mods.isAltDown() ? 127 : 100;
-    drums::setHit (pat, lane, step * drums::stepTicks (pat), paintVel, &doc.undo());
-    host.engine.previewDrum (lane, paintVel / 127.0f);
-    drag = Drag::paint;
-    dragLane = lane;
+    // empty space: a selection box (Shift adds to the selection)
+    marqueeBase = e.mods.isShiftDown() ? selected : juce::Array<juce::ValueTree>();
+    selected = marqueeBase;
+    rebuildSelKeys();
+    marquee = { e.getPosition(), e.getPosition() };
+    drag = Drag::marquee;
+    repaint();
 }
 
 void DrumGrid::mouseDrag (const juce::MouseEvent& e)
@@ -420,33 +478,21 @@ void DrumGrid::mouseDrag (const juce::MouseEvent& e)
     }
     if (drag == Drag::velocity && dragHit.isValid())
     {
-        const int v = juce::jlimit (1, 127, dragStartVel - e.getDistanceFromDragStartY());
-        dragHit.setProperty (dids::vel, v, &doc.undo());
-    }
-    else if (drag == Drag::paint)
-    {
-        const int step = stepAt (e.x);
-        if (juce::isPositiveAndBelow (step, steps()) && ! hitInCell (dragLane, step).isValid())
-            drums::setHit (pat, dragLane, step * drums::stepTicks (pat), paintVel, &doc.undo());
+        const int v = juce::jlimit (1, 127, (int) std::lround ((double) (velTop() + velLaneHeight - e.y) / velLaneHeight * 127.0));
+        const int delta = v - dragStartVel;
+        for (auto& o : velOrigins)
+        {
+            const int nv = o.hit == dragHit ? v : juce::jlimit (1, 127, o.tick + delta);   // tick holds the original velocity here
+            if ((int) o.hit[dids::vel] != nv) o.hit.setProperty (dids::vel, nv, &doc.undo());
+        }
+        repaint();
     }
 }
 
 void DrumGrid::mouseUp (const juce::MouseEvent&)
 {
     if (drag == Drag::marquee) { marquee = {}; repaint(); }
-    if (drag == Drag::move)
-    {
-        if (moved) { dropOverlaps(); rebuildSelKeys(); repaint(); }
-        else if (! selectTool && dragHit.isValid())   // a plain click on a hit removes it, selected or not
-        {
-            selected.removeFirstMatchingValue (dragHit);
-            dragHit.getParent().removeChild (dragHit, &doc.undo());
-            rebuildSelKeys();
-            repaint();
-        }
-    }
-    if (drag == Drag::velocity && ! moved && dragHit.isValid())
-        dragHit.getParent().removeChild (dragHit, &doc.undo());   // plain click on a hit removes it
+    if (drag == Drag::move && moved) { dropOverlaps(); rebuildSelKeys(); repaint(); }
     drag = Drag::none;
     dragHit = {};
 }
@@ -698,10 +744,6 @@ DrumPage::DrumPage (ProjectDocument& d, EngineHost& h, SessionController& s, juc
     songModeButton.setTooltip ("The play button plays the whole song arrangement");
     patternModeButton.onClick = [this] { if (patternModeButton.getToggleState()) { songMode = false; if (host.engine.isPlaying()) host.engine.stop(); rebuildSequence(); pushEngine(); } };
     songModeButton.onClick = [this] { if (songModeButton.getToggleState()) { songMode = true; if (host.engine.isPlaying()) host.engine.stop(); rebuildSequence(); pushEngine(); } };
-    selectButton.setClickingTogglesState (true);
-    selectButton.setTooltip ("Select tool: drag a box around hits to select them, then drag any selected hit to move them all. "
-                             "Arrow keys nudge, Delete removes, Ctrl+A selects everything. Ctrl / Cmd-drag draws the box without this tool.");
-    selectButton.onClick = [this] { grid.setSelectTool (selectButton.getToggleState()); };
     loopButton.setClickingTogglesState (true);
     loopButton.setToggleState (true, juce::dontSendNotification);
     loopButton.setTooltip ("Loop the pattern / song");
@@ -766,7 +808,7 @@ DrumPage::DrumPage (ProjectDocument& d, EngineHost& h, SessionController& s, juc
                 bool tempoChanges = false;
                 for (auto& mb : song.masterBars) tempoChanges = tempoChanges || mb.tempo > 0.0;
                 if (tempoChanges)
-                    r.warnings.add ("The song changes tempo; the Drum Studio plays it at " + juce::String (song.tempo, 1)
+                    r.warnings.add ("The song changes tempo; MIDI Studio plays it at " + juce::String (song.tempo, 1)
                                     + " BPM. Play it from Guitar Tabs (Drums on) to follow the tempo changes.");
             }
             else
@@ -864,7 +906,7 @@ DrumPage::DrumPage (ProjectDocument& d, EngineHost& h, SessionController& s, juc
 
     for (juce::Component* c : std::initializer_list<juce::Component*> {
              &patternCombo, &newButton, &dupButton, &renameButton, &deleteButton, &sigCombo, &barsCombo, &gridCombo, &swingSlider,
-             &tempoSlider, &backButton, &patternModeButton, &songModeButton, &selectButton, &loopButton, &clickButton, &genreCombo, &halfButton, &complexitySlider,
+             &tempoSlider, &backButton, &patternModeButton, &songModeButton, &loopButton, &clickButton, &genreCombo, &halfButton, &complexitySlider,
              &fillButton, &crashButton, &generateButton, &generateNewButton, &humanLabel, &humanTimeSlider, &humanVelSlider,
              &volumeLabel, &volumeSlider, &importButton, &exportButton, &renderButton, &addSectionButton, &removeSectionButton,
              &leftButton, &rightButton, &lessButton, &moreButton, &songLabel, &status })
@@ -987,9 +1029,9 @@ void DrumPage::refresh()
                            + " bars, " + juce::String ((int) secs / 60) + ":" + juce::String ((int) secs % 60).paddedLeft ('0', 2),
                        juce::dontSendNotification);
     strip.repaint();
-    status.setText (has ? juce::String (cur.getNumChildren()) + " hits" + dotSep() + "click: add / remove" + dotSep() + "Shift-click: ghost"
-                              + dotSep() + "Alt-click: accent" + dotSep() + "drag a hit up/down: velocity" + dotSep() + "right-click: presets"
-                              + dotSep() + "Select tool or Ctrl-drag: box-select, drag to move" + dotSep() + "click the bar numbers to set where playback starts" + dotSep() + "click a name to hear it, right-click to load a sample" + dotSep() + "Space: play / stop"
+    status.setText (has ? juce::String (cur.getNumChildren()) + " hits" + dotSep() + "double-click: add / delete" + dotSep() + "Shift / Alt double-click: ghost / accent"
+                              + dotSep() + "drag a velocity bar: velocity" + dotSep() + "right-click: presets"
+                              + dotSep() + "drag empty space: box-select, drag hits to move" + dotSep() + "click the bar numbers to set where playback starts" + dotSep() + "click a name to hear it, right-click to load a sample" + dotSep() + "Space: play / stop"
                         : juce::String(), juce::dontSendNotification);
 }
 
@@ -1451,15 +1493,50 @@ void DrumPage::paint (juce::Graphics& g)
 {
     g.fillAll (palette::bg);
     g.setColour (palette::panel);
-    g.fillRect (getLocalBounds().removeFromTop (84));
+    g.fillRect (getLocalBounds().removeFromTop (126));
     g.setColour (palette::outline);
     g.drawHorizontalLine (42, 0.0f, (float) getWidth());
     g.drawHorizontalLine (84, 0.0f, (float) getWidth());
+    g.drawHorizontalLine (126, 0.0f, (float) getWidth());
 }
 
 void DrumPage::resized()
 {
     auto r = getLocalBounds();
+    // row 1: instrument on the left, the transport-style controls in the middle of the screen, import / export on the right
+    auto row0 = r.removeFromTop (42).reduced (8, 7);
+    {
+        const int groupW = 34 + 10 + 70 + 2 + 58 + 10 + 50 + 4 + 54;
+        auto grp = juce::Rectangle<int> (groupW, row0.getHeight()).withCentre ({ getWidth() / 2, row0.getCentreY() });
+        backButton.setBounds (grp.removeFromLeft (34)); grp.removeFromLeft (10);
+        patternModeButton.setBounds (grp.removeFromLeft (70)); grp.removeFromLeft (2);
+        songModeButton.setBounds (grp.removeFromLeft (58)); grp.removeFromLeft (10);
+        loopButton.setBounds (grp.removeFromLeft (50)); grp.removeFromLeft (4);
+        clickButton.setBounds (grp.removeFromLeft (54));
+    }
+    instrumentButton.setBounds (row0.removeFromLeft (108)); row0.removeFromLeft (4);
+    mixerButton.setBounds (row0.removeFromLeft (64));
+    renderButton.setBounds (row0.removeFromRight (116)); row0.removeFromRight (4);
+    exportButton.setBounds (row0.removeFromRight (100)); row0.removeFromRight (2);
+    importButton.setBounds (row0.removeFromRight (98));
+
+    // row 2: the generator and humanize
+    auto row2 = r.removeFromTop (42).reduced (8, 7);
+    genreCombo.setBounds (row2.removeFromLeft (150)); row2.removeFromLeft (4);
+    halfButton.setBounds (row2.removeFromLeft (70)); row2.removeFromLeft (2);
+    complexitySlider.setBounds (row2.removeFromLeft (92)); row2.removeFromLeft (2);
+    fillButton.setBounds (row2.removeFromLeft (40)); row2.removeFromLeft (2);
+    crashButton.setBounds (row2.removeFromLeft (76)); row2.removeFromLeft (4);
+    generateButton.setBounds (row2.removeFromLeft (76)); row2.removeFromLeft (2);
+    generateNewButton.setBounds (row2.removeFromLeft (112)); row2.removeFromLeft (12);
+    kitButton.setBounds (row2.removeFromRight (56)); row2.removeFromRight (10);
+    humanLabel.setBounds (row2.removeFromLeft (64));
+    humanTimeSlider.setBounds (row2.removeFromLeft (juce::jmax (60, juce::jmin (84, row2.getWidth() / 3)))); row2.removeFromLeft (2);
+    humanVelSlider.setBounds (row2.removeFromLeft (juce::jmax (60, juce::jmin (84, row2.getWidth() / 2)))); row2.removeFromLeft (6);
+    volumeLabel.setBounds (row2.removeFromLeft (24));
+    volumeSlider.setBounds (row2.removeFromLeft (juce::jmax (50, juce::jmin (80, row2.getWidth()))));
+
+    // row 3: the pattern
     auto row1 = r.removeFromTop (42).reduced (8, 7);
     patternCombo.setBounds (row1.removeFromLeft (190)); row1.removeFromLeft (4);
     newButton.setBounds (row1.removeFromLeft (48)); row1.removeFromLeft (2);
@@ -1471,38 +1548,6 @@ void DrumPage::resized()
     gridCombo.setBounds (row1.removeFromLeft (110)); row1.removeFromLeft (4);
     swingSlider.setBounds (row1.removeFromLeft (92)); row1.removeFromLeft (10);
     tempoSlider.setBounds (row1.removeFromLeft (88));
-    {
-        // transport-style controls, centred in the space that is left
-        row1.removeFromLeft (12);
-        const int groupW = 34 + 10 + 70 + 2 + 58 + 10 + 50 + 4 + 54 + 10 + 64;
-        auto grp = row1.withSizeKeepingCentre (juce::jmin (groupW, row1.getWidth()), row1.getHeight());
-        backButton.setBounds (grp.removeFromLeft (34)); grp.removeFromLeft (10);
-        patternModeButton.setBounds (grp.removeFromLeft (70)); grp.removeFromLeft (2);
-        songModeButton.setBounds (grp.removeFromLeft (58)); grp.removeFromLeft (10);
-        loopButton.setBounds (grp.removeFromLeft (50)); grp.removeFromLeft (4);
-        clickButton.setBounds (grp.removeFromLeft (54)); grp.removeFromLeft (10);
-        selectButton.setBounds (grp.removeFromLeft (64));
-    }
-
-    auto row2 = r.removeFromTop (42).reduced (8, 7);
-    genreCombo.setBounds (row2.removeFromLeft (150)); row2.removeFromLeft (4);
-    halfButton.setBounds (row2.removeFromLeft (70)); row2.removeFromLeft (2);
-    complexitySlider.setBounds (row2.removeFromLeft (92)); row2.removeFromLeft (2);
-    fillButton.setBounds (row2.removeFromLeft (40)); row2.removeFromLeft (2);
-    crashButton.setBounds (row2.removeFromLeft (76)); row2.removeFromLeft (4);
-    generateButton.setBounds (row2.removeFromLeft (76)); row2.removeFromLeft (2);
-    generateNewButton.setBounds (row2.removeFromLeft (112)); row2.removeFromLeft (12);
-    renderButton.setBounds (row2.removeFromRight (116)); row2.removeFromRight (4);
-    exportButton.setBounds (row2.removeFromRight (100)); row2.removeFromRight (2);
-    importButton.setBounds (row2.removeFromRight (98)); row2.removeFromRight (4);
-    kitButton.setBounds (row2.removeFromRight (56)); row2.removeFromRight (4);
-    instrumentButton.setBounds (row2.removeFromRight (96)); row2.removeFromRight (4);
-    mixerButton.setBounds (row2.removeFromRight (60)); row2.removeFromRight (10);
-    humanLabel.setBounds (row2.removeFromLeft (64));
-    humanTimeSlider.setBounds (row2.removeFromLeft (juce::jmax (60, juce::jmin (84, row2.getWidth() / 3)))); row2.removeFromLeft (2);
-    humanVelSlider.setBounds (row2.removeFromLeft (juce::jmax (60, juce::jmin (84, row2.getWidth() / 2)))); row2.removeFromLeft (6);
-    volumeLabel.setBounds (row2.removeFromLeft (24));
-    volumeSlider.setBounds (row2.removeFromLeft (juce::jmax (50, juce::jmin (80, row2.getWidth()))));
 
     status.setBounds (r.removeFromBottom (24).reduced (10, 0));
     auto songArea = r.removeFromBottom (96).reduced (8, 4);
