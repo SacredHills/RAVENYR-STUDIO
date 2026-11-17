@@ -934,7 +934,15 @@ void MiniMixer::changeListenerCallback (juce::ChangeBroadcaster*)
     for (auto* s : strips)
     {
         s->repaint();
-        if (scroll && session.isTrackSelected (s->getTrack())) view.setViewPosition (juce::jlimit (0, juce::jmax (0, holder.getWidth() - view.getWidth()), s->getX() - (view.getWidth() - s->getWidth()) / 2), 0);
+        if (scroll && session.isTrackSelected (s->getTrack()))
+        {
+            // bring it into view by the shortest move (nearest edge), never centre it
+            const int x = view.getViewPositionX();
+            int nx = x;
+            if (s->getX() < x) nx = s->getX();
+            else if (s->getRight() > x + view.getWidth()) nx = s->getRight() - view.getWidth();
+            if (nx != x) view.setViewPosition (juce::jlimit (0, juce::jmax (0, holder.getWidth() - view.getWidth()), nx), 0);
+        }
     }
 }
 
