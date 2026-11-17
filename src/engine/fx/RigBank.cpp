@@ -101,6 +101,7 @@ std::shared_ptr<AmpRig> makeOfflineRig (const juce::ValueTree& t, double sr, int
         juce::String err;
         auto inst = host->createBlocking (c[rig::ids::desc].toString(), sr, block, err);
         if (inst == nullptr) { warnings.add ("Plugin \"" + name + "\" could not be loaded" + (err.isNotEmpty() ? ": " + err : juce::String()) + "; it was skipped."); continue; }
+        inst->setNonRealtime (true);   // an export: plugins with a separate "render" quality (or other offline behaviour) switch to it
         restorePluginState (*inst, c[rig::ids::state].toString());
         preparePlugin (*inst, sr, block);
         rig->setPlugin (slot, std::shared_ptr<juce::AudioPluginInstance> (inst.release()));
@@ -137,6 +138,7 @@ std::shared_ptr<InsertChain> makeOfflineInserts (const juce::ValueTree& track, d
         juce::String err;
         auto inst = host->createBlocking (c[rig::ids::desc].toString(), sr, block, err);
         if (inst == nullptr) { warnings.add ("Insert \"" + name + "\" could not be loaded" + (err.isNotEmpty() ? ": " + err : juce::String()) + "; it was skipped."); continue; }
+        inst->setNonRealtime (true);   // an export: see makeOfflineRig
         restorePluginState (*inst, c[rig::ids::state].toString());
         preparePlugin (*inst, sr, block, true);
         chain->setPlugin (slot, std::shared_ptr<juce::AudioPluginInstance> (inst.release()));
@@ -159,6 +161,7 @@ std::shared_ptr<InstrumentSlot> makeOfflineInstrument (const juce::ValueTree& tr
     juce::String err;
     auto inst = host->createBlocking (desc, sr, block, err);
     if (inst == nullptr) { warnings.add ("Instrument \"" + name + "\" could not be loaded" + (err.isNotEmpty() ? ": " + err : juce::String()) + "."); return nullptr; }
+    inst->setNonRealtime (true);   // an export: see makeOfflineRig
     restorePluginState (*inst, node[rig::ids::state].toString());
     const int aux = juce::jlimit (0, 15, (int) node[rig::ids::auxOutputs]);
     preparePlugin (*inst, sr, block, false, aux);
