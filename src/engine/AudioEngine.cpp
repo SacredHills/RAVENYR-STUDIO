@@ -1,4 +1,5 @@
 #include "AudioEngine.h"
+#include "core/DrumModel.h"
 #include <cmath>
 
 namespace ff
@@ -80,6 +81,15 @@ void AudioEngine::submitClickMap (std::unique_ptr<ClickList> clicks)
     if (clicks != nullptr && clicks->empty()) clicks.reset();
     // nullptr is a message too (back to the constant click): an empty list stands for it
     delete pendingClicks.exchange (clicks != nullptr ? clicks.release() : new ClickList());
+}
+
+void AudioEngine::setDrumInstrument (std::shared_ptr<fx::InstrumentSlot> slot)
+{
+    if (slot.get() == drumInstOwner.get()) return;
+    drumInst.store (nullptr);
+    waitForAudioCallback();
+    drumInstOwner = std::move (slot);
+    drumInst.store (drumInstOwner.get());
 }
 
 void AudioEngine::submitTabSequence (std::unique_ptr<TabSequence> seq)
@@ -170,8 +180,13 @@ void AudioEngine::renderTab (float* const* bus, int numBus, int offset, int len)
             if (old != nullptr) retiredSamples.push (&old, 1);
         }
     }
+    auto* inst = drumInst.load();
+    const bool useInst = inst != nullptr && inst->activePlugin() != nullptr && ! inst->bypassed.load();
     if (const int pv = drumPreview.exchange (-1); pv >= 0)
-        drumSynth.trigger (pv & 0xff, (float) ((pv >> 8) & 0x7f) / 127.0f);
+    {
+        if (useInst) drumMidiAdd (0, 0x99, (juce::uint8) drums::pieceInfo (pv & 0xff).gmNote, (juce::uint8) ((pv >> 8) & 0x7f));
+        else drumSynth.trigger (pv & 0xff, (float) ((pv >> 8) & 0x7f) / 127.0f);
+    }
     cursor = 0;
     if (tabSeq != nullptr) drumSynth.volume = tabSeq->drumVolume;
     if (playing && tabSeq != nullptr)
@@ -181,13 +196,69 @@ void AudioEngine::renderTab (float* const* bus, int numBus, int offset, int len)
         while (drumNext < hits.size() && hits[drumNext].sec < t1)
         {
             const int off = juce::jlimit (cursor, len, (int) (std::llround (hits[drumNext].sec * sr) - pos));
-            drumSynth.render (L + cursor, R + cursor, off - cursor);
-            cursor = off;
-            drumSynth.trigger (hits[drumNext].piece, hits[drumNext].velocity);
+            if (useInst)
+            {
+                const auto note = (juce::uint8) juce::jlimit (0, 127, drums::pieceInfo (hits[drumNext].piece).gmNote);
+                drumMidiAdd (juce::jmin (off, len - 1), 0x99, note, (juce::uint8) juce::jlimit (1, 127, (int) (hits[drumNext].velocity * 127.0f)));
+                if (drumOffN < (int) drumOffs.size()) drumOffs[(size_t) drumOffN++] = { pos + off + (juce::int64) (0.12 * sr), note };
+            }
+            else
+            {
+                drumSynth.render (L + cursor, R + cursor, off - cursor);
+                cursor = off;
+                drumSynth.trigger (hits[drumNext].piece, hits[drumNext].velocity);
+            }
             ++drumNext;
         }
     }
     drumSynth.render (L + cursor, R + cursor, len - cursor);
+
+    // the Drum Studio's plugin instrument: this block's hits (and the note-offs that fall due) as MIDI
+    if (inst != nullptr)
+    {
+        if (! useInst) { drumEvN = 0; drumOffN = 0; }
+        else
+        {
+            if (drumInstPanic)
+            {
+                drumInstPanic = false;
+                drumOffN = 0;
+                drumEvN = 0;
+                for (int n = 0; n < 128; ++n) if (drums::pieceForGmNote (n) >= 0) drumMidiAdd (0, 0x89, (juce::uint8) n, 0);
+            }
+            for (int i = 0; i < drumOffN;)
+                if (drumOffs[(size_t) i].at < pos + len)
+                {
+                    drumMidiAdd ((int) juce::jlimit ((juce::int64) 0, (juce::int64) (len - 1), drumOffs[(size_t) i].at - pos), 0x89, drumOffs[(size_t) i].note, 0);
+                    drumOffs[(size_t) i] = drumOffs[(size_t) --drumOffN];
+                }
+                else ++i;
+            const float vol = tabSeq != nullptr ? tabSeq->drumVolume : 1.0f;
+            const int chunk = 512;
+            for (int s = 0; s < len; s += chunk)
+            {
+                const int n = juce::jmin (chunk, len - s);
+                drumMidi.clear();
+                for (int e = 0; e < drumEvN; ++e)
+                {
+                    const auto& ev = drumEv[(size_t) e];
+                    if (ev.pos >= s && ev.pos < s + n)
+                    {
+                        const juce::uint8 data[3] = { ev.b0, ev.b1, ev.b2 };
+                        drumMidi.addEvent (data, 3, ev.pos - s);
+                    }
+                }
+                float* il = instL.data();
+                float* ir = instR.data();
+                juce::FloatVectorOperations::clear (il, n);
+                juce::FloatVectorOperations::clear (ir, n);
+                inst->render (il, ir, n, drumMidi);
+                juce::FloatVectorOperations::addWithMultiply (L + s, il, vol, n);
+                juce::FloatVectorOperations::addWithMultiply (R + s, ir, vol, n);
+            }
+            drumEvN = 0;
+        }
+    }
 
     juce::FloatVectorOperations::add (bus[0] + offset, L, len);
     juce::FloatVectorOperations::add ((numBus > 1 ? bus[1] : bus[0]) + offset, R, len);
@@ -257,6 +328,9 @@ void AudioEngine::prepare (double sr, int maximumBlockSize)
     metronome.prepare (sr);
     synth.prepare (sr);
     drumSynth.prepare (sr);
+    instL.assign (512, 0.0f);
+    instR.assign (512, 0.0f);
+    drumMidi.ensureSize (4096);
     tabNeedsSeek = tabNeedsSeekClicks = mapNeedsSeek = true;
     smoothedGain.reset (sr, 0.02);
     smoothedGain.setCurrentAndTargetValue (masterGain.load());
@@ -521,7 +595,7 @@ void AudioEngine::process (const float* const* inputs, int numInputs, float* con
         closeRecordSegments();
         tabNeedsSeek = tabNeedsSeekClicks = mapNeedsSeek = true;
         synth.allNotesOff();
-        drumSynth.allNotesOff();
+        drumSynth.allNotesOff(); drumInstPanic = true;
         if (playing && countInRemaining == 0)
             metronome.resetAtBeat (beatsAt (pos));
     }
@@ -542,7 +616,7 @@ void AudioEngine::process (const float* const* inputs, int numInputs, float* con
         playing = false;
         countInRemaining = 0;
         synth.allNotesOff();
-        drumSynth.allNotesOff();
+        drumSynth.allNotesOff(); drumInstPanic = true;
     }
 
     const bool practice = practiceMetronome.load();
@@ -680,7 +754,7 @@ void AudioEngine::process (const float* const* inputs, int numInputs, float* con
                 metronome.resetAtBeat (beatsAt (pos));
                 tabNeedsSeek = tabNeedsSeekClicks = mapNeedsSeek = true;
                 synth.allNotesOff();
-        drumSynth.allNotesOff();
+        drumSynth.allNotesOff(); drumInstPanic = true;
             }
         }
         done += len;

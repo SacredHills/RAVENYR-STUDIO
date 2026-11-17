@@ -1,3 +1,6 @@
+#include "engine/fx/InstrumentSlot.h"
+#include "engine/fx/BuiltinPlugins.h"
+#include "engine/fx/PluginHost.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_events/juce_events.h>
@@ -459,6 +462,50 @@ struct DrumTests : juce::UnitTest
             for (int i = 0; i < juce::jmin (4, (int) onsets.size()); ++i)
                 expect (std::abs (onsets[(size_t) i] - i * 24000) <= 3, "hit " + juce::String (i) + " at " + juce::String (onsets[(size_t) i]));
             e.collectGarbage();
+        }
+
+        beginTest ("a plugin instrument plays the drum hits as MIDI, on time, instead of the built-in kit");
+        {
+            juce::ValueTree proj4 ("PROJECT");
+            auto dr = d::getOrCreate (proj4);
+            auto pat = d::addPattern (dr, "Q", 4, 4, 1, nullptr);
+            for (int b = 0; b < 4; ++b) d::setHit (pat, d::sideStick, b * 960, 127, nullptr);
+            constexpr double sr = 48000.0;
+            auto run = [&] (bool withInstrument)
+            {
+                AudioEngine e;
+                e.prepare (sr, 512);
+                e.tabMode = true;
+                std::shared_ptr<fx::InstrumentSlot> slot;
+                if (withInstrument)
+                {
+                    auto p = fx::builtin::create ("fretforge:synth");
+                    fx::preparePlugin (*p, sr, 512);
+                    slot = std::make_shared<fx::InstrumentSlot>();
+                    slot->prepare (sr, 512);
+                    slot->setPlugin (std::shared_ptr<juce::AudioPluginInstance> (p.release()));
+                    e.setDrumInstrument (slot);
+                }
+                e.submitTabSequence (buildDrumSequence (dr, pat, 120.0));
+                std::vector<float> l (512), r (512), all;
+                float* outs[2] = { l.data(), r.data() };
+                e.play();
+                for (int i = 0; i < (int) (2.0 * sr / 512); ++i)
+                {
+                    e.process (nullptr, 0, outs, 2, 512);
+                    all.insert (all.end(), l.begin(), l.end());
+                }
+                e.setDrumInstrument (nullptr);
+                e.collectGarbage();
+                return all;
+            };
+            const auto builtIn = run (false), plugin = run (true);
+            // the synth rings on between hits, so look for new energy in the 10 ms after each hit instead of a silent gap before it
+            auto peak = [&] (int from, int n) { float m = 0.0f; for (int i = from; i < from + n && i < (int) plugin.size(); ++i) m = juce::jmax (m, std::abs (plugin[(size_t) i])); return m; };
+            for (int i = 0; i < 4; ++i)
+                expect (peak (i * 24000, 2400) > 1.0e-3f, "plugin sound after hit " + juce::String (i));
+            expect (peak (0, 20) <= 0.5f && peak (0, 2400) > 1.0e-3f, "the first hit sounds right away");
+            expect (builtIn != plugin, "the sound comes from the plugin, not the built-in kit");
         }
     }
 };

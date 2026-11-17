@@ -420,6 +420,9 @@ DrumPage::DrumPage (ProjectDocument& d, EngineHost& h, SessionController& s, juc
     mixerButton.onClick = [this] { mixer.setVisible (mixerButton.getToggleState()); viewport.setVisible (! mixerButton.getToggleState()); };
     addAndMakeVisible (mixerButton);
     addChildComponent (mixer);
+    instrumentButton.setTooltip ("Play the drums through a plugin instrument (a drum VST3 / LV2) instead of the built-in kit");
+    instrumentButton.onClick = [this] { session.showDrumInstrumentMenu (&instrumentButton); };
+    addAndMakeVisible (instrumentButton);
     addAndMakeVisible (kitButton);
     deleteButton.setTooltip ("Delete this pattern, unused patterns, all patterns, or clear the song");
     deleteButton.onClick = [this] {
@@ -1297,6 +1300,7 @@ void DrumPage::resized()
     exportButton.setBounds (row2.removeFromRight (100)); row2.removeFromRight (2);
     importButton.setBounds (row2.removeFromRight (98)); row2.removeFromRight (4);
     kitButton.setBounds (row2.removeFromRight (56)); row2.removeFromRight (4);
+    instrumentButton.setBounds (row2.removeFromRight (96)); row2.removeFromRight (4);
     mixerButton.setBounds (row2.removeFromRight (60)); row2.removeFromRight (10);
     humanLabel.setBounds (row2.removeFromLeft (64));
     humanTimeSlider.setBounds (row2.removeFromLeft (juce::jmax (60, juce::jmin (84, row2.getWidth() / 3)))); row2.removeFromLeft (2);

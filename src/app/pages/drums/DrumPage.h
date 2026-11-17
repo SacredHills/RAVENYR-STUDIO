@@ -108,7 +108,7 @@ private:
     juce::Slider complexitySlider, humanTimeSlider, humanVelSlider, volumeSlider;
     juce::Label complexityLabel, humanLabel, volumeLabel;
     juce::TextButton generateButton { "Generate" }, generateNewButton { "Generate as new" };
-    juce::TextButton kitButton { "Kit..." }, mixerButton { "Mixer" };
+    juce::TextButton kitButton { "Kit..." }, instrumentButton { "Instrument..." }, mixerButton { "Mixer" };
     DrumMixer mixer { doc, host };
     void pushMix();
     juce::TextButton importButton { "Import..." }, exportButton { "Export MIDI" }, renderButton { "Render to Editor" };

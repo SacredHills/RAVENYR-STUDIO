@@ -84,6 +84,10 @@ public:
     // ---- instruments of instrument tracks (TRACK/INSTRUMENT { desc, name, state }) ----
     std::shared_ptr<InstrumentSlot> instrumentForTrack (const juce::String& trackId) const;
     Status::Plugin instrumentStatus (const juce::ValueTree& track) const;
+    /** The Drum Studio's own instrument (a plugin that plays its hits): its slot is `instrumentForTrack (drumKey)`. */
+    static inline const juce::String drumKey { "@drums" };
+    Status::Plugin drumInstrumentStatus() const;
+    std::shared_ptr<juce::AudioPluginInstance> drumInstrumentPlugin() const;
     std::shared_ptr<juce::AudioPluginInstance> instrumentPlugin (const juce::ValueTree& track) const;
 
     /** What the audio engine is spending its time on: one row per amp rig, insert plugin and instrument that is running,

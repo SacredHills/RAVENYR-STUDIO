@@ -1,4 +1,5 @@
 #include "RigBank.h"
+#include "core/DrumModel.h"
 #include "engine/AudioEngine.h"
 #include "core/ProjectFile.h"
 #include "core/MidiClip.h"
@@ -387,6 +388,8 @@ void RigBank::syncInstruments (bool& changed)
         if (timeline::isInstrumentTrack (t))
             if (auto n = t.getChildWithName (midiclip::INSTRUMENT); n[rig::ids::desc].toString().isNotEmpty())
                 wanted[t[timeline::ids::id].toString()] = n;
+    if (auto n = drums::find (root).getChildWithName (midiclip::INSTRUMENT); n.isValid() && n[rig::ids::desc].toString().isNotEmpty())
+        wanted[drumKey] = n;   // the Drum Studio's instrument
     for (auto it = instruments.begin(); it != instruments.end();)
     {
         if (auto w = wanted.find (it->first); w == wanted.end() || w->second != it->second.node)
@@ -488,6 +491,18 @@ RigBank::Status::Plugin RigBank::instrumentStatus (const juce::ValueTree& track)
 std::shared_ptr<juce::AudioPluginInstance> RigBank::instrumentPlugin (const juce::ValueTree& track) const
 {
     if (auto it = instruments.find (track[timeline::ids::id].toString()); it != instruments.end()) return it->second.slot->getPlugin();
+    return nullptr;
+}
+
+RigBank::Status::Plugin RigBank::drumInstrumentStatus() const
+{
+    if (auto it = instruments.find (drumKey); it != instruments.end()) return it->second.status;
+    return {};
+}
+
+std::shared_ptr<juce::AudioPluginInstance> RigBank::drumInstrumentPlugin() const
+{
+    if (auto it = instruments.find (drumKey); it != instruments.end()) return it->second.slot->getPlugin();
     return nullptr;
 }
 
@@ -834,7 +849,7 @@ std::vector<RigBank::CpuRow> RigBank::cpuBreakdown() const
     }
     for (const auto& [id, e] : instruments)
         if (e.slot != nullptr)
-            add (trackName (e.node.getParent()), e.status.name.isNotEmpty() ? e.status.name : (e.slot->getPlugin() != nullptr ? e.slot->getPlugin()->getName() : juce::String ("Instrument")),
+            add (e.node.getParent().hasType (drums::ids::DRUMS) ? juce::String ("Drum Studio") : trackName (e.node.getParent()), e.status.name.isNotEmpty() ? e.status.name : (e.slot->getPlugin() != nullptr ? e.slot->getPlugin()->getName() : juce::String ("Instrument")),
                  e.slot->cpuLoad.load());
     std::sort (rows.begin(), rows.end(), [] (const CpuRow& a, const CpuRow& b) { return a.load > b.load; });
     return rows;

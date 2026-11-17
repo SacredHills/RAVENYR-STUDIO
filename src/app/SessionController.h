@@ -161,6 +161,12 @@ public:
     juce::StringArray inputChoiceNames (juce::Array<std::pair<int, bool>>& values, bool stereo) const;
     void setInstrument (juce::ValueTree track, const juce::String& descXml, const juce::String& name, const juce::String& state = {});
     void openInstrument (juce::ValueTree track);
+    // the Drum Studio's own instrument (plays its hits instead of the built-in kit)
+    juce::ValueTree drumInstrumentNode() const;
+    void setDrumInstrument (const juce::String& descXml, const juce::String& name);
+    void removeDrumInstrument();
+    void openDrumInstrument();
+    void showDrumInstrumentMenu (juce::Component* target);
     juce::String instrumentName (const juce::ValueTree& track) const;
 
     // ---- recording ----

@@ -8,6 +8,7 @@
 #include "TrackWorkers.h"
 #include "TabSynth.h"
 #include "fx/AmpRig.h"
+#include "fx/InstrumentSlot.h"
 #include <array>
 #include <cstring>
 #include <atomic>
@@ -116,6 +117,9 @@ public:
     /** Auditions a drum piece on the next audio block (score mode only). Lock-free. */
     /** Per-piece drum mix (volume / pan) and meters; any thread. */
     DrumSynth& drums() noexcept { return drumSynth; }
+    /** The plugin instrument that plays the Drum Studio's hits instead of the built-in kit (nullptr = built-in kit).
+        Message thread; waits for the audio thread to let go of the old one. */
+    void setDrumInstrument (std::shared_ptr<fx::InstrumentSlot> slot);
     void previewDrum (int piece, float velocity) noexcept { drumPreview.store ((piece & 0xff) | (juce::jlimit (1, 127, (int) (velocity * 127.0f)) << 8)); }
     void submitTabSequence (std::unique_ptr<TabSequence> seq);
     /** The DAW click when the project has tempo changes: the beat times (seconds) and which are bar starts. An empty list (or
@@ -204,6 +208,21 @@ private:
     GuitarSynth synth;
     DrumSynth drumSynth;
     std::atomic<int> drumPreview { -1 };
+    std::shared_ptr<fx::InstrumentSlot> drumInstOwner;              // message thread
+    std::atomic<fx::InstrumentSlot*> drumInst { nullptr };          // audio thread reads
+    struct DrumMidiEv { int pos; juce::uint8 b0, b1, b2; };
+    std::array<DrumMidiEv, 512> drumEv {};
+    int drumEvN = 0;
+    struct DrumOff { juce::int64 at; juce::uint8 note; };
+    std::array<DrumOff, 128> drumOffs {};
+    int drumOffN = 0;
+    juce::MidiBuffer drumMidi;
+    std::vector<float> instL, instR;
+    bool drumInstPanic = false;
+    void drumMidiAdd (int pos, juce::uint8 b0, juce::uint8 b1, juce::uint8 b2) noexcept
+    {
+        if (drumEvN < (int) drumEv.size()) drumEv[(size_t) drumEvN++] = { pos, b0, b1, b2 };
+    }
     struct SampleSwap { int piece = 0; juce::AudioBuffer<float>* buffer = nullptr; };
     SpscFifo<SampleSwap> pendingSamples;
     SpscFifo<juce::AudioBuffer<float>*> retiredSamples;

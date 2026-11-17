@@ -1,4 +1,5 @@
 #include "SessionController.h"
+#include "core/DrumModel.h"
 #include "plugins/PluginManager.h"
 #include "engine/fx/BuiltinPlugins.h"
 #include "core/MidiClip.h"
@@ -583,6 +584,7 @@ void SessionController::rebuildGraphNow()
     opt.masterInserts = rigBank->insertsForTrack (project::masterId);
     opt.masterNode = project::masterNode (doc.tree());
     opt.instrumentFor = [this] (const juce::ValueTree& t) { return rigBank->instrumentForTrack (t[ids::id].toString()); };
+    host.engine.setDrumInstrument (rigBank->instrumentForTrack (fx::RigBank::drumKey));
     host.engine.submitGraph (buildPlaybackGraph (doc.tracks(), doc.mediaBundle(), cache, opt));
 }
 
@@ -1209,6 +1211,94 @@ void SessionController::openInstrument (juce::ValueTree track)
         const auto st = rigBank->instrumentStatus (track);
         if (onError) onError ("Instrument", st.error.isNotEmpty() ? st.error : juce::String ("The instrument is still loading."));
     }
+}
+
+// ---- the Drum Studio's instrument: a plugin that plays the pattern's hits instead of the built-in kit ----
+
+juce::ValueTree SessionController::drumInstrumentNode() const
+{
+    return drums::find (doc.tree()).getChildWithName (midiclip::INSTRUMENT);
+}
+
+void SessionController::setDrumInstrument (const juce::String& desc, const juce::String& name)
+{
+    auto d = drums::getOrCreate (doc.tree());
+    auto in = d.getChildWithName (midiclip::INSTRUMENT);
+    doc.undo().beginNewTransaction ("Drum instrument " + name);
+    if (! in.isValid())
+    {
+        in = juce::ValueTree (midiclip::INSTRUMENT);
+        d.appendChild (in, &doc.undo());
+    }
+    in.setProperty (rig::ids::state, juce::String(), &doc.undo());
+    in.setProperty (rig::ids::name, name, &doc.undo());
+    in.setProperty (rig::ids::desc, desc, &doc.undo());
+    in.setProperty (rig::ids::bypass, false, &doc.undo());
+}
+
+void SessionController::removeDrumInstrument()
+{
+    auto in = drumInstrumentNode();
+    if (! in.isValid()) return;
+    doc.undo().beginNewTransaction ("Use the built-in drum kit");
+    in.getParent().removeChild (in, &doc.undo());
+}
+
+void SessionController::openDrumInstrument()
+{
+    if (plugins == nullptr) return;
+    if (auto p = rigBank->drumInstrumentPlugin())
+    {
+        PluginManager::BypassControl bc;
+        bc.isBypassed = [this] { return (bool) drumInstrumentNode()[rig::ids::bypass]; };
+        bc.toggle = [this] {
+            if (auto in = drumInstrumentNode(); in.isValid()) in.setProperty (rig::ids::bypass, ! (bool) in[rig::ids::bypass], &doc.undo());
+        };
+        plugins->showEditor (p, "Drum Studio - " + drumInstrumentNode()[rig::ids::name].toString(), bc);
+    }
+    else
+    {
+        const auto st = rigBank->drumInstrumentStatus();
+        if (onError) onError ("Drum instrument", st.error.isNotEmpty() ? st.error : juce::String ("The instrument is still loading."));
+    }
+}
+
+void SessionController::showDrumInstrumentMenu (juce::Component* target)
+{
+    if (plugins == nullptr) return;
+    const auto in = drumInstrumentNode();
+    const bool has = in[rig::ids::desc].toString().isNotEmpty();
+    juce::PopupMenu m, change;
+    plugins->addToMenu (change, PluginManager::instrumentMenu);
+    if (has)
+    {
+        m.addSectionHeader (in[rig::ids::name].toString());
+        m.addItem (-10, "Open");
+        m.addItem (-12, "Bypass (play the built-in kit)", true, (bool) in[rig::ids::bypass]);
+        m.addSubMenu ("Change instrument", change);
+        m.addItem (-11, "Remove (use the built-in kit)");
+    }
+    else
+    {
+        m.addSectionHeader ("Play the drums through an instrument");
+        plugins->addToMenu (m, PluginManager::instrumentMenu);
+    }
+    m.addSeparator();
+    m.addItem (-2, "Scan for plugins / manage...");
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target).withMousePosition(), [this] (int r) {
+        if (r == 0) return;
+        if (r == -2) { plugins->showManager(); return; }
+        if (r == -10) { openDrumInstrument(); return; }
+        if (r == -11) { removeDrumInstrument(); return; }
+        if (r == -12)
+        {
+            if (auto n = drumInstrumentNode(); n.isValid()) n.setProperty (rig::ids::bypass, ! (bool) n[rig::ids::bypass], &doc.undo());
+            return;
+        }
+        juce::String name;
+        const auto desc = plugins->descriptionForMenuResult (r, PluginManager::instrumentMenu, name);
+        if (desc.isNotEmpty()) setDrumInstrument (desc, name);
+    });
 }
 
 juce::Result SessionController::importMidi (const juce::File& file, double atSec, juce::ValueTree onto)
