@@ -36,6 +36,9 @@ public:
                               timeline::TrackKind kind = timeline::TrackKind::audio);
     /** Menu: audio / bus / FX track (added after `after`, or at the end). */
     void showAddTrackMenu (juce::Component* target, int insertIndex = -1);
+    /** Asks how many tracks, audio or instrument, mono or stereo, then adds them all as one undo step. */
+    void showAddMultipleTracksDialog (int insertIndex = -1);
+    bool batchingTracks = false;   // while a group of tracks is added, one undo step covers them all
 
     // ---- routing (outputs and sends) ----
     void setOutput (juce::ValueTree track, const juce::String& busId);

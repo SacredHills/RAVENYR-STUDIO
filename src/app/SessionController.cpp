@@ -626,8 +626,9 @@ juce::ValueTree SessionController::addTrack (const juce::String& nameIn, int ins
         t.setProperty (ids::inputChannel, inputs.isEmpty() ? -1 : 0, nullptr);
     }
     else t.setProperty (ids::inputChannel, -1, nullptr);
-    doc.undo().beginNewTransaction (kind == TrackKind::bus ? "Add bus" : kind == TrackKind::fx ? "Add FX track"
-                                    : kind == TrackKind::instrument ? "Add instrument track" : "Add track");
+    if (! batchingTracks)
+        doc.undo().beginNewTransaction (kind == TrackKind::bus ? "Add bus" : kind == TrackKind::fx ? "Add FX track"
+                                        : kind == TrackKind::instrument ? "Add instrument track" : "Add track");
     tracks.addChild (t, insertIndex, &doc.undo());
     setSelectedTracks ({ t });
     return t;
@@ -727,6 +728,8 @@ void SessionController::showAddTrackMenu (juce::Component* target, int insertInd
     m.addItem (3, "FX track (shared effect: send tracks to it)");
     m.addItem (4, "Instrument track (MIDI with a synth / VST instrument)");
     m.addItem (5, "Folder (collapse tracks to save space)");
+    m.addSeparator();
+    m.addItem (6, "Multiple tracks...");
     juce::Component::SafePointer<juce::Component> safe (target);
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target).withMousePosition(), [this, insertIndex] (int r) {
         if (r == 1) addTrack ({}, insertIndex);
@@ -734,7 +737,36 @@ void SessionController::showAddTrackMenu (juce::Component* target, int insertInd
         else if (r == 3) addTrack ({}, insertIndex, TrackKind::fx);
         else if (r == 4) addTrack ({}, insertIndex, TrackKind::instrument);
         else if (r == 5) newFolder ({}, insertIndex);
+        else if (r == 6) showAddMultipleTracksDialog (insertIndex);
     });
+}
+
+void SessionController::showAddMultipleTracksDialog (int insertIndex)
+{
+    auto* w = new juce::AlertWindow ("Add multiple tracks", "How many tracks, and what kind?", juce::MessageBoxIconType::NoIcon);
+    w->addTextEditor ("count", "4", "Number of tracks (1 - 64)");
+    w->addComboBox ("kind", { "Audio", "Instrument (MIDI with a synth / VST instrument)" }, "Type");
+    w->addComboBox ("chans", { "Mono", "Stereo" }, "Channels (audio tracks)");
+    w->addButton ("Add", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([this, w, insertIndex] (int r) {
+        std::unique_ptr<juce::AlertWindow> keep (w);
+        if (r != 1) return;
+        const int n = juce::jlimit (1, 64, w->getTextEditorContents ("count").getIntValue());
+        const bool instrument = w->getComboBoxComponent ("kind")->getSelectedItemIndex() == 1;
+        const bool stereo = w->getComboBoxComponent ("chans")->getSelectedItemIndex() == 1 && ! instrument;
+        const juce::ScopedValueSetter<bool> batch (batchingTracks, true);
+        doc.undo().beginNewTransaction ("Add " + juce::String (n) + (instrument ? " instrument tracks" : " tracks"));
+        juce::Array<juce::ValueTree> added;
+        for (int i = 0; i < n; ++i)
+        {
+            auto t = addTrack ({}, insertIndex < 0 ? -1 : insertIndex + i, instrument ? TrackKind::instrument : TrackKind::audio);
+            if (! t.isValid()) break;
+            if (stereo) setTrackStereo (t, true);
+            added.add (t);
+        }
+        if (! added.isEmpty()) setSelectedTracks (added);
+    }), false);
 }
 
 juce::String SessionController::outputName (const juce::ValueTree& track) const
@@ -996,7 +1028,7 @@ juce::StringArray SessionController::inputChoiceNames (juce::Array<std::pair<int
 void SessionController::setTrackStereo (juce::ValueTree track, bool stereo)
 {
     if (! isAudioTrack (track) || (bool) track[ids::inputStereo] == stereo) return;
-    doc.undo().beginNewTransaction (stereo ? "Stereo track" : "Mono track");
+    if (! batchingTracks) doc.undo().beginNewTransaction (stereo ? "Stereo track" : "Mono track");
     const int numInputs = host.activeInputChannelNames().size();
     for (auto t : tracksForEdit (track))
     {
