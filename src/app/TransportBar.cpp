@@ -5,6 +5,79 @@ namespace ff
 {
 using namespace project;
 
+namespace
+{
+/** Pop-up list of what is using the CPU: every amp rig, insert plugin and instrument, busiest first. */
+class CpuBreakdownView final : public juce::Component, private juce::Timer
+{
+public:
+    CpuBreakdownView (EngineHost& h, std::function<std::vector<fx::RigBank::CpuRow>()> rowsFn) : host (h), getRows (std::move (rowsFn))
+    {
+        setSize (480, 40 + 22 * (maxRows + 1) + 70);
+        refresh();
+        startTimerHz (4);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (palette::panel);
+        auto r = getLocalBounds().reduced (14, 10);
+        g.setColour (palette::text);
+        g.setFont (uiFont (14.0f, true));
+        g.drawText ("What is using the CPU", r.removeFromTop (22), juce::Justification::centredLeft);
+        g.setColour (palette::textDim);
+        g.setFont (uiFont (12.0f));
+        const int xr = host.xruns();
+        g.drawText ("Audio engine " + juce::String (juce::roundToInt (host.cpuUsage() * 100.0)) + "%" + (xr > 0 ? "   dropouts: " + juce::String (xr) : juce::String()),
+                    r.removeFromTop (18), juce::Justification::centredLeft);
+        r.removeFromTop (6);
+
+        float listed = 0.0f;
+        for (const auto& row : rows) listed += row.load;
+        int shown = 0;
+        for (const auto& row : rows)
+        {
+            if (shown++ >= maxRows) break;
+            auto line = r.removeFromTop (22);
+            auto pct = line.removeFromRight (52);
+            auto bar = line.removeFromRight (110).reduced (0, 6);
+            g.setColour (palette::well);
+            g.fillRect (bar);
+            g.setColour (row.load > 0.5f ? palette::bad : (row.load > 0.25f ? palette::warn : palette::info));
+            g.fillRect (bar.withWidth (juce::jmax (1, juce::roundToInt ((float) bar.getWidth() * juce::jmin (1.0f, row.load)))));
+            g.setColour (palette::text);
+            g.setFont (uiFont (12.5f));
+            g.drawText (juce::String::formatted ("%.1f%%", row.load * 100.0f), pct, juce::Justification::centredRight);
+            g.drawFittedText (row.track + "  -  " + row.what, line.withTrimmedRight (8), juce::Justification::centredLeft, 1);
+        }
+        if (rows.empty())
+        {
+            g.setColour (palette::textDim);
+            g.setFont (uiFont (12.5f));
+            g.drawText ("No plugins or amp rigs are running.", r.removeFromTop (22), juce::Justification::centredLeft);
+        }
+        const auto total = (float) host.cpuUsage();
+        r.setTop (getHeight() - 62);
+        g.setColour (palette::outline);
+        g.drawHorizontalLine (r.getY(), (float) r.getX(), (float) r.getRight());
+        g.setColour (palette::textDim);
+        g.setFont (uiFont (11.5f));
+        g.drawFittedText ("Plugins and rigs listed: " + juce::String (juce::roundToInt (listed * 100.0f)) + "% of one audio block's time. "
+                          "Everything else (mixing, recording, sample streaming, meters) is the rest of the engine's " + juce::String (juce::roundToInt (total * 100.0f))
+                          + "%. Plugins on different cores run side by side, so the list can add up to more than the total.",
+                          r.withTrimmedTop (4), juce::Justification::topLeft, 4);
+    }
+
+private:
+    static constexpr int maxRows = 12;
+    EngineHost& host;
+    std::function<std::vector<fx::RigBank::CpuRow>()> getRows;
+    std::vector<fx::RigBank::CpuRow> rows;
+    void refresh() { rows = getRows ? getRows() : std::vector<fx::RigBank::CpuRow>(); }
+    void timerCallback() override { refresh(); repaint(); }
+};
+}
+
 void IconButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
 {
     auto r = getLocalBounds().toFloat().reduced (0.5f);
@@ -159,6 +232,7 @@ TransportBar::TransportBar (EngineHost& h, ProjectDocument& d, juce::PropertiesF
         addAndMakeVisible (l);
     }
     cpuLabel.setJustificationType (juce::Justification::centredLeft);
+    cpuLabel.setInterceptsMouseClicks (false, false);   // clicks go to the bar (mouseUp), which opens the CPU breakdown
 
     tempoSlider.setSliderStyle (juce::Slider::LinearBarVertical);
     tempoSlider.setRange (20.0, 400.0, 0.01);
@@ -333,6 +407,22 @@ void TransportBar::timerCallback()
                       juce::dontSendNotification);
     cpuLabel.setColour (juce::Label::textColourId, host.cpuUsage() > 0.8 || xr > 0 ? palette::bad : palette::textDim);
     repaint (getLocalBounds().removeFromRight (40));
+}
+
+void TransportBar::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (cpuRows && cpuLabel.getBounds().contains (e.getPosition()) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
+void TransportBar::mouseUp (const juce::MouseEvent& e)
+{
+    if (! e.mouseWasDraggedSinceMouseDown() && cpuRows && cpuLabel.getBounds().contains (e.getPosition()))
+        showCpuBreakdown();
+}
+
+void TransportBar::showCpuBreakdown()
+{
+    juce::CallOutBox::launchAsynchronously (std::make_unique<CpuBreakdownView> (host, cpuRows), cpuLabel.getScreenBounds(), nullptr);
 }
 
 void TransportBar::paint (juce::Graphics& g)

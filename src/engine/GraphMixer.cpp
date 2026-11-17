@@ -55,6 +55,14 @@ void GraphMixer::updateLatencies (PlaybackGraph& g) noexcept
     }
 }
 
+/** A track that is not running (muted, asleep): its CPU readings drop to zero instead of showing the last value. */
+static void clearLoads (PlayTrack& t) noexcept
+{
+    if (t.rig != nullptr) t.rig->cpuLoad.store (0.0f, std::memory_order_relaxed);
+    if (t.inserts != nullptr) t.inserts->clearLoad();
+    if (t.instrument != nullptr) t.instrument->cpuLoad.store (0.0f, std::memory_order_relaxed);
+}
+
 void GraphMixer::processTrack (PlayTrack& t, float* L, float* R, int n) noexcept
 {
     // plugins are told the song position of the audio they receive: playback reads this track's clips (and MIDI)
@@ -87,6 +95,7 @@ void GraphMixer::processTrack (PlayTrack& t, float* L, float* R, int n) noexcept
     {
         juce::FloatVectorOperations::clear (L, n);
         juce::FloatVectorOperations::clear (R, n);
+        clearLoads (t);
         return;
     }
     if (t.rig != nullptr)
@@ -172,6 +181,7 @@ void GraphMixer::mix (PlaybackGraph& g, Source& source, float* outL, float* outR
                 juce::FloatVectorOperations::clear (R, n);
             }
             active[(size_t) ti] = (source.fill (ti, t, L, R, n) || t.instInput) ? 1 : 0;
+            if (! active[(size_t) ti]) clearLoads (t);
             if (active[(size_t) ti] && (t.rig != nullptr || t.inserts != nullptr || t.instrument != nullptr)) stage.push_back (ti);
         }
 

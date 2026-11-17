@@ -68,6 +68,7 @@ void InsertChain::process (float* L, float* R, int n, const float* const* scL, c
     if (! isPreparedFor (sr) || maxBlock == 0) return;
     std::array<int, maxSlots> o;
     const int count = readOrder (o);
+    std::array<juce::int64, maxSlots> spent {};   // ticks per slot over this call
     for (int done = 0; done < n;)
     {
         const int len = juce::jmin (maxBlock, n - done);
@@ -80,12 +81,23 @@ void InsertChain::process (float* L, float* R, int n, const float* const* scL, c
             {
                 const PlayHeadOffset at (offset);
                 offset -= juce::jmax (0, p->getLatencySamples());   // what follows hears this plugin's output, that much later
+                const auto t0 = juce::Time::getHighResolutionTicks();
                 runPluginStereo (*p, scratch, midi, L + done, R + done, len,
                                  scL != nullptr && scL[slot] != nullptr ? scL[slot] + done : nullptr,
                                  scR != nullptr && scR[slot] != nullptr ? scR[slot] + done : nullptr);
+                spent[(size_t) slot] += juce::Time::getHighResolutionTicks() - t0;
             }
         }
         done += len;
+    }
+    const double blockSecs = juce::jmax (1.0e-6, n / sr);
+    for (int i = 0; i < count; ++i)
+    {
+        const int slot = o[(size_t) i];
+        if (slot < 0 || slot >= maxSlots) continue;
+        const float now = (float) (juce::Time::highResolutionTicksToSeconds (spent[(size_t) slot]) / blockSecs);
+        auto& l = load[(size_t) slot];
+        l.store (l.load (std::memory_order_relaxed) * 0.9f + now * 0.1f, std::memory_order_relaxed);
     }
 }
 } // namespace ff::fx

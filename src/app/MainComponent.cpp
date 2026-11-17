@@ -133,6 +133,7 @@ MainComponent::MainComponent (juce::PropertiesFile& s) : settings (s)
     };
     transport->onRecord = [this] { session->toggleRecord(); };
     transport->onOpenTuner = [this] { openTuner(); };
+    transport->cpuRows = [this] { return session->rigs().cpuBreakdown(); };
     session->onOpenRig = [this] (juce::ValueTree t) { openRigWindow (t); };
     session->rigs().onPluginRemoved = [this] (juce::AudioPluginInstance* p) { if (pluginManager != nullptr) pluginManager->closeEditor (p); };
     settingsPage->setPluginPanel (pluginManager->createManagerPanel());

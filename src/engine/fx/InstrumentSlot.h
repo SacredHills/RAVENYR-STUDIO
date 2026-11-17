@@ -20,6 +20,8 @@ public:
     double getPreparedRate() const noexcept { return preparedRate.load(); }
     /** Bypassed: the instrument makes no sound (notes held at that moment are released). */
     std::atomic<bool> bypassed { false };
+    /** Share of real time the instrument takes to render (1.0 = one block's duration), smoothed. Audio thread writes. */
+    std::atomic<float> cpuLoad { 0.0f };
     /** Extra stereo output buses switched on (message thread; takes effect when the plugin is prepared). */
     std::atomic<int> auxOutputs { 0 };
 
@@ -71,6 +73,7 @@ public:
                 }
             }
             midi.clear();
+            cpuLoad.store (0.0f, std::memory_order_relaxed);
             return;
         }
         wasBypassed = false;
@@ -86,7 +89,11 @@ public:
         {
             const juce::ScopedLock sl (p->getCallbackLock());
             if (p->isSuspended()) return;
+            const auto t0 = juce::Time::getHighResolutionTicks();
             p->processBlock (view, midi);
+            const double secs = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - t0);
+            cpuLoad.store (cpuLoad.load (std::memory_order_relaxed) * 0.9f + (float) (secs / juce::jmax (1.0e-6, n / sr)) * 0.1f,
+                           std::memory_order_relaxed);
             auxValid = true;
         }
         const int outs = p->getTotalNumOutputChannels();

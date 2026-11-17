@@ -4,6 +4,7 @@
 #include "EngineHost.h"
 #include "Widgets.h"
 #include "core/TapTempo.h"
+#include "engine/fx/RigBank.h"
 
 namespace ff
 {
@@ -60,6 +61,10 @@ public:
     void togglePunch();
     std::function<void()> onRecord;
     std::function<void()> onOpenTuner, onOpenMetronome;
+    /** What the audio engine's time is spent on (clicking the CPU readout shows it). Set by the owner of the rig bank. */
+    std::function<std::vector<fx::RigBank::CpuRow>()> cpuRows;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
 
 private:
     EngineHost& host;
@@ -89,6 +94,7 @@ private:
     bool updating = false;
 
     void timerCallback() override;
+    void showCpuBreakdown();
     void refreshFromProject();
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override { refreshFromProject(); }
 };

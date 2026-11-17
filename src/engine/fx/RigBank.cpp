@@ -811,6 +811,32 @@ RigBank::Status::Plugin RigBank::insertStatus (const juce::ValueTree& track, int
     return {};
 }
 
+std::vector<RigBank::CpuRow> RigBank::cpuBreakdown() const
+{
+    std::vector<CpuRow> rows;
+    auto add = [&rows] (const juce::String& track, const juce::String& what, float load) {
+        if (load >= 0.0005f) rows.push_back ({ track.isEmpty() ? juce::String ("(unnamed)") : track, what, load });
+    };
+    auto trackName = [] (const juce::ValueTree& t) { return t.isValid() ? t[timeline::ids::name].toString() : juce::String(); };
+    if (liveEntry.rig != nullptr) add ("Live input", "Amp rig", liveEntry.rig->cpuLoad.load());
+    for (const auto& [id, e] : tracks)
+        if (e.rig != nullptr) add (trackName (e.tree.getParent()), "Amp rig", e.rig->cpuLoad.load());
+    for (const auto& [id, e] : inserts)
+    {
+        if (e.chain == nullptr) continue;
+        const auto name = id == project::masterId ? juce::String ("Master") : trackName (e.track);
+        for (int i = 0; i < InsertChain::maxSlots; ++i)
+            if (auto p = e.chain->getPlugin (i))
+                add (name, e.status[(size_t) i].name.isNotEmpty() ? e.status[(size_t) i].name : p->getName(), e.chain->load[(size_t) i].load());
+    }
+    for (const auto& [id, e] : instruments)
+        if (e.slot != nullptr)
+            add (trackName (e.node.getParent()), e.status.name.isNotEmpty() ? e.status.name : (e.slot->getPlugin() != nullptr ? e.slot->getPlugin()->getName() : juce::String ("Instrument")),
+                 e.slot->cpuLoad.load());
+    std::sort (rows.begin(), rows.end(), [] (const CpuRow& a, const CpuRow& b) { return a.load > b.load; });
+    return rows;
+}
+
 std::shared_ptr<juce::AudioPluginInstance> RigBank::insertPlugin (const juce::ValueTree& track, int slot) const
 {
     if (auto it = inserts.find (track[timeline::ids::id].toString()); it != inserts.end())

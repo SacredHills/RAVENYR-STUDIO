@@ -86,6 +86,12 @@ public:
     Status::Plugin instrumentStatus (const juce::ValueTree& track) const;
     std::shared_ptr<juce::AudioPluginInstance> instrumentPlugin (const juce::ValueTree& track) const;
 
+    /** What the audio engine is spending its time on: one row per amp rig, insert plugin and instrument that is running,
+        busiest first. load = share of real time the part takes to process one block (0.25 = a quarter of the time
+        available), measured on the audio thread and smoothed. Message thread. */
+    struct CpuRow { juce::String track, what; float load = 0.0f; };
+    std::vector<CpuRow> cpuBreakdown() const;
+
     /** Copies every plugin's current state into its PLUGIN node (before saving / exporting). With onlyChanged, only
         plugins that reported a change are asked (the periodic capture: asking every plugin can stall the app). */
     void captureAllPluginStates (bool onlyChanged = false);

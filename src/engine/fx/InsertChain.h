@@ -31,6 +31,10 @@ public:
     /** Play order as physical slots; `count` entries are used. */
     void setOrder (const std::array<int, maxSlots>& order, int count) noexcept;
     std::array<std::atomic<bool>, maxSlots> bypass {};
+    /** Per physical slot: share of real time the plugin takes to process (1.0 = all of one block's duration), smoothed.
+        Written by the audio thread, read by the UI (CPU breakdown). */
+    std::array<std::atomic<float>, maxSlots> load {};
+    void clearLoad() noexcept { for (auto& l : load) l.store (0.0f, std::memory_order_relaxed); }   // the chain is not running
 
     /** scLeft / scRight (optional): per physical slot, the audio for that plugin's side-chain input (nullptr: none). */
     /** inputOffset: song position of the chain's input relative to the engine position (see PlayHeadOffset); each
