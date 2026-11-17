@@ -7,54 +7,58 @@ namespace ff
 {
 // ------------------------------------------------------------------ nav
 
+juce::Rectangle<int> SectionNav::buttonBounds (int index) const
+{
+    auto f = titleFont (16.5f);
+    int x = 10;
+    for (int i = 0; i < names.size(); ++i)
+    {
+        if (i == hidden) continue;
+        const int w = juce::GlyphArrangement::getStringWidthInt (f, names[i]) + 30;
+        if (i == index) return { x, 4, w, getHeight() - 8 };
+        x += w + 6;
+    }
+    return {};
+}
+
+int SectionNav::indexAt (juce::Point<int> p) const
+{
+    for (int i = 0; i < names.size(); ++i)
+        if (i != hidden && buttonBounds (i).contains (p)) return i;
+    return -1;
+}
+
 void SectionNav::paint (juce::Graphics& g)
 {
     g.fillAll (palette::panel);
     g.setColour (palette::outline);
-    g.drawVerticalLine (getWidth() - 1, 0.0f, (float) getHeight());
+    g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
 
     for (int i = 0; i < names.size(); ++i)
     {
-        auto row = juce::Rectangle<int> (0, 12 + i * rowHeight, getWidth() - 1, rowHeight);
+        if (i == hidden) continue;
+        auto b = buttonBounds (i);
         const bool sel = i == selected;
-        if (sel || i == hover)
-        {
-            g.setColour (sel ? palette::panelHi : palette::panelHi.withAlpha (0.5f));
-            g.fillRect (row);
-        }
-        if (sel)
-        {
-            g.setColour (palette::accent);
-            g.fillRect (row.removeFromLeft (3));
-        }
-        auto text = row.reduced (16, 0);
+        g.setColour (sel ? palette::panelHi : (i == hover ? palette::panelHi.withAlpha (0.6f) : palette::bg.withAlpha (0.5f)));
+        g.fillRoundedRectangle (b.toFloat(), 4.0f);
+        g.setColour (sel ? palette::accent : palette::outline);
+        g.drawRoundedRectangle (b.toFloat().reduced (0.5f), 4.0f, 1.0f);
         g.setColour (sel ? palette::text : palette::textDim);
-        g.setFont (titleFont (18.5f));
-        g.drawText (names[i], text, juce::Justification::centredLeft);
-
-        g.setFont (uiFont (10.5f));
-        g.setColour (palette::textDim.withAlpha (0.7f));
-        auto right = text.removeFromRight (38);
-        g.drawText (i < 9 ? "Ctrl " + juce::String (i + 1) : juce::String(), right, juce::Justification::centredRight);
-        if (! implemented[i])
-        {
-            g.setColour (palette::accentDim);
-            g.fillEllipse (text.removeFromRight (16).withSizeKeepingCentre (6, 6).toFloat());
-        }
+        g.setFont (titleFont (16.5f));
+        g.drawText (names[i], b, juce::Justification::centred);
     }
 }
 
 void SectionNav::mouseDown (const juce::MouseEvent& e)
 {
-    const int i = rowAt (e.y);
-    if (juce::isPositiveAndBelow (i, names.size()) && onSelect)
+    const int i = indexAt (e.getPosition());
+    if (i >= 0 && onSelect)
         onSelect (i);
 }
 
 void SectionNav::mouseMove (const juce::MouseEvent& e)
 {
-    const int i = rowAt (e.y);
-    hover = juce::isPositiveAndBelow (i, names.size()) ? i : -1;
+    hover = indexAt (e.getPosition());
     setTooltip (hover >= 0 && ! implemented[hover] ? "Planned for a later milestone" : juce::String());
     repaint();
 }
@@ -98,6 +102,8 @@ MainComponent::MainComponent (juce::PropertiesFile& s) : settings (s)
     pages = { studioPage.get(), mixerPage.get(), drumPage.get(), tabPage.get(), trainingPage.get(), effectsPage.get(), settingsPage.get() };
     nav.names = names;
     nav.implemented = { true, true, true, true, true, true, true };
+    nav.hidden = settingsSection;
+    transport->onSettings = [this] { showSection (settingsSection); };
     nav.onSelect = [this] (int i) { showSection (i); };
     addAndMakeVisible (nav);
     for (auto* p : pages)
@@ -248,6 +254,7 @@ void MainComponent::showSection (int index)
     if (doc != nullptr) doc->setUiProperty (doc->tree(), timeline::ids::uiPage, index);   // reopens on this page
     nav.selected = index;
     nav.repaint();
+    transport->setSettingsActive (index == settingsSection);
     for (int i = 0; i < pages.size(); ++i)
         pages[i]->setVisible (i == index);
     commandManager.commandStatusChanged();
@@ -334,13 +341,13 @@ void MainComponent::resized()
     if (menuBar)
         menuBar->setBounds (r.removeFromTop (24));
     auto top = r.removeFromTop (64);
-    logoArea = top.removeFromLeft (220);   // the logo, right under the menus, above the section list
+    logoArea = top.removeFromLeft (200);   // the logo, right under the menus
     transport->setBounds (top);
     auto status = r.removeFromBottom (26).reduced (10, 0);
     statusRight.setBounds (status.removeFromRight (status.getWidth() / 2));
     statusLeft.setBounds (status);
 
-    nav.setBounds (r.removeFromLeft (220));
+    nav.setBounds (r.removeFromTop (SectionNav::barHeight));
     loadingOverlay.setBounds (getLocalBounds());
     for (auto* p : pages)
         p->setBounds (r);

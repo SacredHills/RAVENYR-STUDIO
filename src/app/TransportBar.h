@@ -63,6 +63,8 @@ public:
     std::function<void()> onOpenTuner, onOpenMetronome;
     /** What the audio engine's time is spent on (clicking the CPU readout shows it). Set by the owner of the rig bank. */
     std::function<std::vector<fx::RigBank::CpuRow>()> cpuRows;
+    std::function<void()> onSettings;
+    void setSettingsActive (bool on) { settingsButton.setToggleState (on, juce::dontSendNotification); }
     void mouseUp (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
 
@@ -87,6 +89,7 @@ private:
     TunerDisplay tunerDisplay;
 
     juce::Label inCaption, outCaption, cpuLabel;
+    juce::TextButton settingsButton { "Settings" };
     TapTempo tap;
     double lastTapMs = 0.0;
     juce::uint32 lastMidi = 0;

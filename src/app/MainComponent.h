@@ -23,22 +23,24 @@
 
 namespace ff
 {
-/** Left-hand section navigator. */
+/** Row of section buttons above the pages (Settings lives next to the CPU readout instead). */
 class SectionNav : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     juce::StringArray names;
     juce::Array<bool> implemented;
     int selected = 0;
+    int hidden = -1;   // a section shown elsewhere
     std::function<void (int)> onSelect;
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override { hover = -1; repaint(); }
-    static constexpr int rowHeight = 48;
+    static constexpr int barHeight = 34;
 private:
     int hover = -1;
-    int rowAt (int y) const { return (y - 12) / rowHeight; }
+    juce::Rectangle<int> buttonBounds (int i) const;
+    int indexAt (juce::Point<int>) const;
 };
 
 class MainComponent : public juce::Component,

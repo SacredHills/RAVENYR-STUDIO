@@ -231,6 +231,10 @@ TransportBar::TransportBar (EngineHost& h, ProjectDocument& d, juce::PropertiesF
         styleLabel (*l, 11.0f, palette::textDim, true);
         addAndMakeVisible (l);
     }
+    settingsButton.setClickingTogglesState (false);
+    settingsButton.setTooltip ("Settings");
+    settingsButton.onClick = [this] { if (onSettings) onSettings(); };
+    addAndMakeVisible (settingsButton);
     cpuLabel.setJustificationType (juce::Justification::centredLeft);
     cpuLabel.setInterceptsMouseClicks (false, false);   // clicks go to the bar (mouseUp), which opens the CPU breakdown
 
@@ -446,7 +450,7 @@ void TransportBar::resized()
     auto full = getLocalBounds().reduced (10, 8);
     const int h = full.getHeight();
     // one group centred in the bar (the MIDI LED stays at the far right); the gaps shrink when the bar is narrow
-    const int meterW = 140, cpuW = 84, tunerW = 140, posW = 160;
+    const int meterW = 116, cpuW = 84, tunerW = 116, posW = 150;
     const int fixed = 5 * h + 8 + 4 * 4 + 6 + 30 + 96 + posW + 120 + 6 + 46 + 124 + tunerW + meterW + cpuW;
     const int avail = getWidth() - 2 * 40;
     const int gap = juce::jlimit (4, 16, (avail - fixed) / 6);
@@ -502,6 +506,8 @@ void TransportBar::resized()
     outL.setBounds (outRow.removeFromTop (outRow.getHeight() / 2).reduced (0, 1));
     outR.setBounds (outRow.reduced (0, 1));
     r.removeFromLeft (gap);
-    cpuLabel.setBounds (r.removeFromLeft (cpuW));
+    auto cpuCol = r.removeFromLeft (cpuW);   // CPU readout with the Settings button under it
+    cpuLabel.setBounds (cpuCol.removeFromTop (juce::jmax (14, cpuCol.getHeight() / 2)));
+    settingsButton.setBounds (cpuCol.reduced (0, 1));
 }
 } // namespace ff
