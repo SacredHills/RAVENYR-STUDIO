@@ -10,13 +10,20 @@ namespace ff
 juce::Rectangle<int> SectionNav::buttonBounds (int index) const
 {
     auto f = titleFont (16.5f);
-    int x = 10;
+    juce::Array<int> widths;
+    int total = 0;
+    for (int i = 0; i < names.size(); ++i)
+    {
+        const int w = i == hidden ? 0 : juce::GlyphArrangement::getStringWidthInt (f, names[i]) + 26;
+        widths.add (w);
+        total += w == 0 ? 0 : w + 6;
+    }
+    int x = (getWidth() - (total - 6)) / 2;   // centred
     for (int i = 0; i < names.size(); ++i)
     {
         if (i == hidden) continue;
-        const int w = juce::GlyphArrangement::getStringWidthInt (f, names[i]) + 30;
-        if (i == index) return { x, 4, w, getHeight() - 8 };
-        x += w + 6;
+        if (i == index) return { x, 3, widths[i], getHeight() - 6 };
+        x += widths[i] + 6;
     }
     return {};
 }
@@ -30,9 +37,12 @@ int SectionNav::indexAt (juce::Point<int> p) const
 
 void SectionNav::paint (juce::Graphics& g)
 {
-    g.fillAll (palette::panel);
-    g.setColour (palette::outline);
-    g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
+    if (fillBackground)
+    {
+        g.fillAll (palette::panel);
+        g.setColour (palette::outline);
+        g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
+    }
 
     for (int i = 0; i < names.size(); ++i)
     {
@@ -253,7 +263,7 @@ void MainComponent::showSection (int index)
     currentSection = index;
     if (doc != nullptr) doc->setUiProperty (doc->tree(), timeline::ids::uiPage, index);   // reopens on this page
     nav.selected = index;
-    nav.repaint();
+    layoutPages();
     transport->setSettingsActive (index == settingsSection);
     for (int i = 0; i < pages.size(); ++i)
         pages[i]->setVisible (i == index);
@@ -347,10 +357,23 @@ void MainComponent::resized()
     statusRight.setBounds (status.removeFromRight (status.getWidth() / 2));
     statusLeft.setBounds (status);
 
-    nav.setBounds (r.removeFromTop (SectionNav::barHeight));
+    pagesArea = r;
+    layoutPages();
     loadingOverlay.setBounds (getLocalBounds());
+}
+
+void MainComponent::layoutPages()
+{
+    // the editor's Arrange / Project tabs share the row with the section buttons; other pages sit under it
+    auto r = pagesArea;
+    nav.setBounds (r.removeFromTop (SectionNav::barHeight));
+    nav.fillBackground = currentSection != 0;
+    nav.setPaintingIsUnclipped (false);
+    nav.repaint();
+    auto pageArea = currentSection == 0 ? pagesArea : r;
     for (auto* p : pages)
-        p->setBounds (r);
+        p->setBounds (pageArea);
+    nav.toFront (false);
 }
 
 // ------------------------------------------------------------------ file flows

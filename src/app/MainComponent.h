@@ -35,8 +35,10 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    bool hitTest (int x, int y) override { return fillBackground || indexAt ({ x, y }) >= 0; }   // transparent: the tabs underneath stay clickable
     void mouseExit (const juce::MouseEvent&) override { hover = -1; repaint(); }
-    static constexpr int barHeight = 34;
+    static constexpr int barHeight = 30;   // same as the Arrange / Project tab bar
+    bool fillBackground = true;
 private:
     int hover = -1;
     juce::Rectangle<int> buttonBounds (int i) const;
@@ -132,6 +134,8 @@ private:
     static constexpr int numSections = 7, drumSection = 2, tabsSection = 3, trainingSection = 4, effectsSection = 5, settingsSection = 6;
 
     void showSection (int index);
+    void layoutPages();
+    juce::Rectangle<int> pagesArea;
     void updateTitleAndStatus();
     void timerCallback() override;
 
