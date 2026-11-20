@@ -531,6 +531,50 @@ struct AmpRigTests : juce::UnitTest
             expect (r.irActive.load());
         }
 
+        beginTest ("cabinet loaded into a running / waiting rig with a shared queue is applied");
+        {
+            // The way the app does it: rigs share one message queue, the IR is handed over while the rig is idle or
+            // running, the device may re-prepare the rig, and the cabinet must still end up in the signal.
+            for (int scenario = 0; scenario < 4; ++scenario)
+            {
+                juce::dsp::ConvolutionMessageQueue queue { 64 };
+                fx::AmpRig other (&queue);   // a second rig on the same queue
+                other.prepare (sr, 512);
+                fx::AmpRig r (&queue);
+                r.prepare (sr, 512);
+                allOff (r);
+                r.setParam (rg::cabOn, 1);
+                r.setParam (rg::cabLowCut, 20.0f);
+                r.setParam (rg::cabHighCut, 20000.0f);
+                juce::AudioBuffer<float> ir (1, 64);
+                ir.clear();
+                ir.setSample (0, 0, 0.05f);
+                ir.setSample (0, 40, 1.0f);
+                std::vector<float> in (512, 0.0f);
+                in[100] = 1.0f;
+                std::vector<float> silence (512, 0.0f);
+                auto pump = [&] (int blocks) {   // idle blocks, like the audio callback while the user waits
+                    for (int b = 0; b < blocks; ++b) { runRig (r, silence, 512); juce::Thread::sleep (4); }
+                };
+                if (scenario == 1) pump (5);                  // running before the IR arrives
+                r.setImpulseResponse (std::move (ir), sr);
+                if (scenario == 2) r.prepare (sr, 512);       // the device re-prepares the rig after the load
+                if (scenario == 3) { juce::Thread::sleep (300); }   // nobody processes it for a while (live rig switched off)
+                bool found = false;
+                for (int attempt = 0; attempt < 100 && ! found; ++attempt)
+                {
+                    pump (1);
+                    auto out = runRig (r, in, 512);
+                    int at = 0;
+                    float best = 0;
+                    for (int i = 0; i < 512; ++i) if (std::abs (out[(size_t) i]) > best) { best = std::abs (out[(size_t) i]); at = i; }
+                    found = at == 140 && best > 0.01f;
+                    pump (2);
+                }
+                expect (found, "scenario " + juce::String (scenario) + ": the cabinet is in the signal");
+            }
+        }
+
         beginTest ("engine: track insert and live rig");
         {
             AudioEngine e;
