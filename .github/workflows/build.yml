@@ -47,8 +47,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/_deps
-          # the generator and the checkout path are part of the cached configure state (it holds absolute paths)
-          key: juce-8.0.15-${{ matrix.os }}-ninja-${{ github.event.repository.name }}
+          # the generator, the checkout path and the compiler path are part of the cached configure state (it holds absolute paths): bump the vN when a runner image update moves the compiler
+          key: juce-8.0.15-v2-${{ matrix.os }}-ninja-${{ github.event.repository.name }}
 
       - name: Compiler cache
         uses: hendrikmuhs/ccache-action@v1.2
