@@ -575,6 +575,73 @@ struct AmpRigTests : juce::UnitTest
             }
         }
 
+        beginTest ("cabinets still arrive while other rigs are being created on the message thread");
+        {
+            // Opening a project creates and prepares track rigs on the message thread while the audio thread already
+            // runs the others, all on one shared convolution queue: no cabinet may get lost.
+            for (int round = 0; round < 6; ++round)
+            {
+                juce::dsp::ConvolutionMessageQueue queue { 64 };
+                std::vector<std::unique_ptr<fx::AmpRig>> rigs;
+                std::atomic<bool> stop { false };
+                juce::CriticalSection rigLock;
+                auto makeCabRig = [&] (int k) {
+                    auto r = std::make_unique<fx::AmpRig> (&queue);
+                    r->prepare (sr, 512);
+                    allOff (*r);
+                    r->setParam (rg::cabOn, 1);
+                    r->setParam (rg::cabLowCut, 20.0f);
+                    r->setParam (rg::cabHighCut, 20000.0f);
+                    juce::AudioBuffer<float> ir (1, 128);
+                    ir.clear();
+                    ir.setSample (0, 0, 0.05f);
+                    ir.setSample (0, 30 + 10 * k, 1.0f);
+                    r->setImpulseResponse (std::move (ir), sr);
+                    return r;
+                };
+                struct Audio : juce::Thread
+                {
+                    Audio (std::vector<std::unique_ptr<fx::AmpRig>>& r, juce::CriticalSection& l, std::atomic<bool>& s) : Thread ("audio"), rigs (r), lock (l), stop (s) {}
+                    void run() override
+                    {
+                        std::vector<float> a (512, 0.0f), b (512, 0.0f);
+                        while (! stop.load())
+                        {
+                            { const juce::ScopedLock sl (lock); for (auto& r : rigs) { r->process (a.data(), b.data(), 512); } }
+                            juce::Thread::sleep (2);
+                        }
+                    }
+                    std::vector<std::unique_ptr<fx::AmpRig>>& rigs; juce::CriticalSection& lock; std::atomic<bool>& stop;
+                } audio (rigs, rigLock, stop);
+                audio.startThread();
+                for (int k = 0; k < 8; ++k)
+                {
+                    auto r = makeCabRig (k);
+                    { const juce::ScopedLock sl (rigLock); rigs.push_back (std::move (r)); }
+                    juce::Thread::sleep (3);
+                }
+                juce::Thread::sleep (300);
+                stop = true;
+                audio.stopThread (2000);
+                for (int k = 0; k < 8; ++k)
+                {
+                    auto& r = *rigs[(size_t) k];
+                    std::vector<float> in (512, 0.0f);
+                    in[100] = 1.0f;
+                    bool found = false;
+                    for (int attempt = 0; attempt < 100 && ! found; ++attempt)
+                    {
+                        auto out = runRig (r, in, 512);
+                        int at = 0; float best = 0;
+                        for (int i = 0; i < 512; ++i) if (std::abs (out[(size_t) i]) > best) { best = std::abs (out[(size_t) i]); at = i; }
+                        found = at == 130 + 10 * k && best > 0.01f;
+                        juce::Thread::sleep (5);
+                    }
+                    expect (found, "round " + juce::String (round) + ", rig " + juce::String (k) + ": cabinet in the signal");
+                }
+            }
+        }
+
         beginTest ("engine: track insert and live rig");
         {
             AudioEngine e;

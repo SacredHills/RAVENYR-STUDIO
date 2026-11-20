@@ -64,28 +64,24 @@ void AmpRig::clearModel()
 
 void AmpRig::setImpulseResponse (juce::AudioBuffer<float>&& ir, double irRate)
 {
-    lastIr1.makeCopyOf (ir); lastIrRate1 = irRate; irResends1 = 0;
     delete pendingIr1.exchange (new IrJob { std::move (ir), irRate });   // an older one never seen by the audio thread
     irActive = true;
 }
 
 void AmpRig::setImpulseResponse2 (juce::AudioBuffer<float>&& ir, double irRate)
 {
-    lastIr2.makeCopyOf (ir); lastIrRate2 = irRate; irResends2 = 0;
     delete pendingIr2.exchange (new IrJob { std::move (ir), irRate });
     irActive2 = true;
 }
 
 void AmpRig::clearImpulseResponse() noexcept
 {
-    lastIr1.setSize (0, 0);
     irActive = false;
     delete pendingIr1.exchange (nullptr);
 }
 
 void AmpRig::clearImpulseResponse2() noexcept
 {
-    lastIr2.setSize (0, 0);
     irActive2 = false;
     delete pendingIr2.exchange (nullptr);
 }
@@ -93,36 +89,15 @@ void AmpRig::clearImpulseResponse2() noexcept
 void AmpRig::takeOverIrs() noexcept
 {
     using C = juce::dsp::Convolution;
-    const auto deliver = [this] (std::atomic<IrJob*>& slot, C& conv, int& watch) {
+    const auto deliver = [this] (std::atomic<IrJob*>& slot, C& conv) {
         if (auto* j = slot.exchange (nullptr))
         {
-            watch = (int) (sr * 1.5) + maxBlock;
             conv.loadImpulseResponse (std::move (j->buf), j->rate, C::Stereo::no, C::Trim::yes, C::Normalise::yes);
             if (retiredIrs.push (&j, 1) == 0) {}   // FIFO full: leak rather than free here
         }
     };
-    deliver (pendingIr1, *convolution, irWatch1);
-    deliver (pendingIr2, *convolution2, irWatch2);
-}
-
-bool AmpRig::resendLostImpulseResponses()
-{
-    bool any = false;
-    if (irLost1.exchange (false) && irActive.load() && lastIr1.getNumSamples() > 0 && irResends1 < 4)
-    {
-        ++irResends1;
-        juce::AudioBuffer<float> b; b.makeCopyOf (lastIr1);
-        delete pendingIr1.exchange (new IrJob { std::move (b), lastIrRate1 });
-        any = true;
-    }
-    if (irLost2.exchange (false) && irActive2.load() && lastIr2.getNumSamples() > 0 && irResends2 < 4)
-    {
-        ++irResends2;
-        juce::AudioBuffer<float> b; b.makeCopyOf (lastIr2);
-        delete pendingIr2.exchange (new IrJob { std::move (b), lastIrRate2 });
-        any = true;
-    }
-    return any;
+    deliver (pendingIr1, *convolution);
+    deliver (pendingIr2, *convolution2);
 }
 
 void AmpRig::finishLoadingOffline()
@@ -215,7 +190,9 @@ void AmpRig::prepare (double rate, int block)
     if (model != nullptr) model->prepare (rate, maxBlock);
     if (auto* p = pendingModel.load()) p->prepare (rate, maxBlock);
 
+    inPrepare = true;
     reset();
+    inPrepare = false;
     pluginBuffer.setSize (8, maxBlock);
     pluginMidi.ensureSize (256);
     for (auto& ps : pluginSlots)
@@ -241,7 +218,8 @@ void AmpRig::resetBlock (int b) noexcept
         case amp: eqBass.reset(); eqMid.reset(); eqTreble.reset(); eqPresence.reset(); ampOs.reset(); ampHp.reset(); ampMid.reset(); ampLp.reset(); if (model != nullptr) model->reset();
                   ampG.setCurrentAndTargetValue (dbToGain (getParam (ampLevel))); break;
         case eq: eqBass.reset(); eqMid.reset(); eqTreble.reset(); eqPresence.reset(); break;
-        case cab: convolution->reset(); convolution2->reset(); for (auto* f : { &cabHp1, &cabHp2, &cabLp1, &cabLp2, &spkHp, &spkPeak, &spkLp1, &spkLp2 }) f->reset(); break;
+        case cab: if (! inPrepare.load (std::memory_order_relaxed)) { convolution->reset(); convolution2->reset(); }   // reset() queues work: only the audio thread may (prepare() just built them fresh)
+                   for (auto* f : { &cabHp1, &cabHp2, &cabLp1, &cabLp2, &spkHp, &spkPeak, &spkLp1, &spkLp2 }) f->reset(); break;
         case chorus: chorusFx.reset(); break;
         case delay: std::fill (dlL.begin(), dlL.end(), 0.0f); std::fill (dlR.begin(), dlR.end(), 0.0f); dlLpL = dlLpR = 0;
                     dlTime.setCurrentAndTargetValue (getParam (delayTime)); break;
@@ -490,14 +468,12 @@ void AmpRig::runCab (float* x, int n) noexcept
         float* t2 = tmp.data();
         if (blend) std::copy (x, x + n, t2);
         convolution->process (juce::dsp::ProcessContextReplacing<float> (blk));
-        if (irWatch1 > 0 && (irWatch1 -= n) <= 0 && convolution->getCurrentIRSize() <= 1) irLost1.store (true);
         if (getParam (cabPhase1) >= 0.5f) juce::FloatVectorOperations::negate (x, x, n);
         if (blend)
         {
             float* ch2[1] = { t2 };
             juce::dsp::AudioBlock<float> blk2 (ch2, 1, (size_t) n);
             convolution2->process (juce::dsp::ProcessContextReplacing<float> (blk2));
-            if (irWatch2 > 0 && (irWatch2 -= n) <= 0 && convolution2->getCurrentIRSize() <= 1) irLost2.store (true);
             const float b = juce::jlimit (0.0f, 1.0f, getParam (cabBlend));   // equal power
             const float ga = std::cos (b * juce::MathConstants<float>::halfPi), gb = std::sin (b * juce::MathConstants<float>::halfPi);
             const float gb2 = getParam (cabPhase2) >= 0.5f ? -gb : gb;

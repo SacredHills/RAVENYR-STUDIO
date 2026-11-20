@@ -48,9 +48,6 @@ public:
     void setImpulseResponse2 (juce::AudioBuffer<float>&& ir, double irSampleRate);
     void clearImpulseResponse2() noexcept;
     void collectGarbage();
-    /** Message thread, polled: a cabinet that was handed over but never showed up in the convolution (lost by JUCE's
-        background loader) is sent again. Returns true when something was resent. */
-    bool resendLostImpulseResponses();
     /** For offline rendering: finishes pending IR loads (call after setImpulseResponse, before processing). */
     void finishLoadingOffline();
 
@@ -97,12 +94,7 @@ private:
     std::atomic<IrJob*> pendingIr1 { nullptr }, pendingIr2 { nullptr };
     SpscFifo<IrJob*> retiredIrs;
     void takeOverIrs() noexcept;
-    // copies kept on the message thread so a lost load can be repeated; the audio thread watches the result
-    juce::AudioBuffer<float> lastIr1, lastIr2;
-    double lastIrRate1 = 0.0, lastIrRate2 = 0.0;
-    int irResends1 = 0, irResends2 = 0;
-    int irWatch1 = 0, irWatch2 = 0;   // audio thread: samples left until the delivered IR must be installed
-    std::atomic<bool> irLost1 { false }, irLost2 { false };
+    std::atomic<bool> inPrepare { false };
 
     // block state
     std::array<bool, rig::numBlocks> wasOn {};

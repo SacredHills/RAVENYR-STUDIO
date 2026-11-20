@@ -1022,8 +1022,6 @@ void RigBank::timerCallback()
 {
     auto service = [this] (Entry& e) {
         e.rig->collectGarbage();
-        if (e.rig->resendLostImpulseResponses())
-            juce::Logger::writeToLog ("Cabinet was not installed by the convolution; sending it again (" + e.status.irName + ")");
         if (e.rig->modelNeedsPrepare.load() && ! e.status.modelLoading && e.status.modelPath.isNotEmpty())
         {
             e.rig->modelNeedsPrepare = false;
