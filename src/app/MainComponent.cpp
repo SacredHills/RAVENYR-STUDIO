@@ -104,6 +104,7 @@ MainComponent::MainComponent (juce::PropertiesFile& s) : settings (s)
     trainingPage = std::make_unique<TrainingPage> (host, *doc, settings);
     effectsPage = std::make_unique<RigEditor> (*doc, host, *session, settings);
     t3kClient = std::make_unique<t3k::Client> (settings);
+    fx::builtin::tone3000Browser() = [this] (bool cab, std::function<void (const juce::File&, bool)> load) { openTone3000 (cab, "the NAM Amp plugin", std::move (load)); };
     effectsPage->setTone3000Handler ([this, ed = juce::Component::SafePointer<RigEditor> (effectsPage.get())] (bool cab) {
         if (ed != nullptr) openTone3000 (*ed, cab);
     });
@@ -634,16 +635,21 @@ void MainComponent::openRigWindow (juce::ValueTree track)
 
 void MainComponent::openTone3000 (RigEditor& editor, bool cab)
 {
+    juce::Component::SafePointer<RigEditor> ed (&editor);
+    const auto name = editor.windowTitle().fromFirstOccurrenceOf ("NAM amp - ", false, false);
+    openTone3000 (cab, name.isEmpty() ? juce::String ("the live rig") : name, [ed] (const juce::File& f, bool isIr) {
+        if (ed != nullptr) ed->loadDownloaded (f, isIr);
+    });
+}
+
+void MainComponent::openTone3000 (bool cab, const juce::String& targetName, std::function<void (const juce::File&, bool isIr)> load)
+{
     if (t3kPanel == nullptr)
     {
         t3kPanel = std::make_unique<Tone3000Panel> (*t3kClient);
         t3kWindow = std::make_unique<ToolWindow> ("TONE3000", *t3kPanel, 1100, 680, settings, "tone3000Window");
     }
-    juce::Component::SafePointer<RigEditor> ed (&editor);
-    const auto name = editor.windowTitle().fromFirstOccurrenceOf ("NAM amp - ", false, false);
-    t3kPanel->setMode (cab, name.isEmpty() ? juce::String ("the live rig") : name, [ed] (const juce::File& f, bool isIr) {
-        if (ed != nullptr) ed->loadDownloaded (f, isIr);
-    });
+    t3kPanel->setMode (cab, targetName, std::move (load));
     t3kWindow->showFront();
 }
 

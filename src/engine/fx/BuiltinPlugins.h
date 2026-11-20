@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <map>
+#include <functional>
 
 /** RAVENYR's own effects (EQ, compressor, delay, chorus, reverb), hosted like any other plugin: they show up
     first in every plugin menu, work as track inserts and in amp rigs, save their settings in the project and
@@ -45,6 +46,15 @@ bool hasRackPanelForDescription (const juce::String& descXml);
     the plugin must outlive it. onEdit gets the plugin's state before and after each change (for undo). */
 std::unique_ptr<juce::Component> createRackPanel (juce::AudioPluginInstance&,
                                                   std::function<void (const juce::MemoryBlock& before, const juce::MemoryBlock& after)> onEdit = {});
+
+/** The NAM Amp's "TONE3000..." button: set by the app, which opens its browser and calls `load` with each downloaded
+    file (isIr: a cabinet; otherwise a NAM capture). Empty: the button is hidden. */
+using Tone3000Browser = std::function<void (bool cab, std::function<void (const juce::File&, bool isIr)> load)>;
+Tone3000Browser& tone3000Browser();
+
+/** NAM Amp: points the plugin at a file (kind 0 = NAM capture, 1 = cabinet, 2 = second cabinet; an empty file clears it).
+    False if the instance is not a NAM Amp. */
+bool setNamAmpFile (juce::AudioPluginInstance&, int kind, const juce::File&);
 
 /** The EQ's band listen (the editor's Listen button): only that band's part of the sound is heard. -1: off. */
 bool setEqListenBand (juce::AudioPluginInstance&, int band);

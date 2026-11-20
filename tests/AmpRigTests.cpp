@@ -5,6 +5,7 @@
 #include "engine/fx/AmpRig.h"
 #include "engine/fx/NamModel.h"
 #include "engine/fx/RigBank.h"
+#include "engine/fx/BuiltinPlugins.h"
 #include "engine/AudioEngine.h"
 #include "engine/Exporter.h"
 #include "NAM/get_dsp.h"
@@ -640,6 +641,74 @@ struct AmpRigTests : juce::UnitTest
                     expect (found, "round " + juce::String (round) + ", rig " + juce::String (k) + ": cabinet in the signal");
                 }
             }
+        }
+
+        beginTest ("NAM Amp plugin: capture and cabinet come back with the saved state");
+        {
+            auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ff_namamp_test");
+            dir.createDirectory();
+            auto irFile = dir.getChildFile ("cab.wav");
+            irFile.deleteFile();
+            {
+                juce::WavAudioFormat wav;
+                std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (irFile), sr, 1, 24, {}, 0));
+                juce::AudioBuffer<float> ir (1, 256);
+                ir.clear();
+                ir.setSample (0, 0, 0.5f);
+                ir.setSample (0, 20, -0.6f);
+                ir.setSample (0, 90, 0.3f);
+                w->writeFromAudioSampleBuffer (ir, 0, 256);
+            }
+            auto render = [&] (juce::AudioPluginInstance& p) {
+                p.setRateAndBufferSizeDetails (sr, 256);
+                p.prepareToPlay (sr, 256);
+                std::vector<float> out;
+                const auto in = sine (196.0, sr, 256 * 24, 0.3f);
+                for (int b = 0; b < 24; ++b)
+                {
+                    juce::AudioBuffer<float> buf (2, 256);
+                    for (int i = 0; i < 256; ++i) buf.setSample (0, i, in[(size_t) (b * 256 + i)]), buf.setSample (1, i, in[(size_t) (b * 256 + i)]);
+                    juce::MidiBuffer midi;
+                    p.processBlock (buf, midi);
+                    for (int i = 0; i < 256; ++i) out.push_back (buf.getSample (0, i));
+                }
+                return out;
+            };
+            auto maxDiff = [] (const std::vector<float>& a, const std::vector<float>& b) {
+                float d = 0;
+                for (size_t i = 0; i < a.size(); ++i) d = juce::jmax (d, std::abs (a[i] - b[i]));
+                return d;
+            };
+            auto a = fx::builtin::create ("fretforge:nam");
+            expect (a != nullptr);
+            if (a != nullptr)
+            {
+                expect (fx::builtin::setNamAmpFile (*a, 0, namData ("wavenet.nam")));
+                expect (fx::builtin::setNamAmpFile (*a, 1, irFile));
+                const auto outA = render (*a);
+                juce::MemoryBlock saved;
+                a->getStateInformation (saved);
+
+                auto b = fx::builtin::create ("fretforge:nam");
+                b->setStateInformation (saved.getData(), (int) saved.getSize());   // a project opening
+                const auto outB = render (*b);
+                expect (maxDiff (outA, outB) < 1.0e-4f, "restored plugin sounds like the saved one: " + juce::String (maxDiff (outA, outB)));
+
+                if (const auto snap = juce::SystemStats::getEnvironmentVariable ("FF_SNAPSHOT", {}); snap.isNotEmpty())
+                {
+                    std::unique_ptr<juce::AudioProcessorEditor> ed (b->createEditorIfNeeded());
+                    ed->setBounds (0, 0, ed->getWidth(), ed->getHeight());
+                    auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 1.5f);
+                    juce::File (snap).deleteFile();
+                    juce::FileOutputStream os { juce::File (snap) };
+                    juce::PNGImageFormat().writeImageToStream (img, os);
+                }
+                auto c = fx::builtin::create ("fretforge:nam");
+                fx::builtin::setNamAmpFile (*c, 0, namData ("wavenet.nam"));
+                const auto outC = render (*c);
+                expect (maxDiff (outA, outC) > 1.0e-3f, "the cabinet is in the signal: " + juce::String (maxDiff (outA, outC)));
+            }
+            dir.deleteRecursively();
         }
 
         beginTest ("engine: track insert and live rig");

@@ -1,6 +1,10 @@
 #include "ScrollSafeSlider.h"
 #include "BuiltinPlugins.h"
 #include "Biquad.h"
+#include "AmpRig.h"
+#include "NamModel.h"
+#include "RigBank.h"
+#include "core/RigModel.h"
 #include "engine/DrumSynth.h"
 #include "core/DrumModel.h"
 #include <juce_dsp/juce_dsp.h>
@@ -236,6 +240,7 @@ void endGesture (APVTS& s, const char* id) { if (auto* p = s.getParameter (id)) 
 // =====================================================================================================  EQ
 
 #include "BuiltinEq.inc"
+#include "BuiltinNam.inc"
 
 // =====================================================================================================  compressor
 
@@ -1782,6 +1787,7 @@ const std::vector<Info>& all()
         { "fretforge:chorus", "Chorus", "Modulation", "Stereo chorus." },
         { "fretforge:reverb", "Reverb", "Reverb", "Room to hall reverb. On an FX track, set Mix to 100 %." },
         { "fretforge:limiter", "Limiter", "Dynamics", "Look-ahead brick-wall limiter: nothing gets past the ceiling. Put it last on the master." },
+        { "fretforge:nam", "NAM Amp", "Amp", "Neural Amp Modeler capture with up to two cabinet impulse responses: noise gate, amp, tone controls and cabinet in one plugin. Capture and cabinets are saved with the project." },
         { "fretforge:synth", "Basic Synth", "Synth", "Polyphonic synth: two detuned oscillators, resonant filter with envelope.", true },
         { "fretforge:drumkit", "Drum Kit", "Drums", "General MIDI drums (any channel) with RAVENYR's drum sounds.", true },
     };
@@ -1831,6 +1837,7 @@ std::unique_ptr<juce::AudioPluginInstance> create (const juce::String& id)
     if (s == "fretforge:chorus") return std::make_unique<Chorus> (*i);
     if (s == "fretforge:reverb") return std::make_unique<Reverb> (*i);
     if (s == "fretforge:limiter") return std::make_unique<Limiter> (*i);
+    if (s == "fretforge:nam") return std::make_unique<NamAmp> (*i);
     if (s == "fretforge:synth") return std::make_unique<BasicSynth> (*i);
     if (s == "fretforge:drumkit") return std::make_unique<DrumKit> (*i);
     return nullptr;
@@ -1911,6 +1918,12 @@ const std::vector<Preset>& factoryPresets (const juce::String& id)
     return id == "fretforge:eq" ? eq : none;
 }
 
+Tone3000Browser& tone3000Browser()
+{
+    static Tone3000Browser b;
+    return b;
+}
+
 bool hasRackPanel (const juce::String& id)
 {
     return id == "fretforge:eq" || id == "fretforge:ssleq" || id == "fretforge:comp" || id == "fretforge:limiter" || id == "fretforge:reverb"
@@ -1927,6 +1940,14 @@ std::unique_ptr<juce::Component> createRackPanel (juce::AudioPluginInstance& ins
     if (auto* e = dynamic_cast<Eq*> (&inst)) return std::make_unique<EqRackPanel> (*e, std::move (onEdit));
     if (auto* b = dynamic_cast<Base*> (&inst); b != nullptr && hasRackPanel (b->info.id)) return std::make_unique<RackPanel> (*b, std::move (onEdit));
     return nullptr;
+}
+
+bool setNamAmpFile (juce::AudioPluginInstance& inst, int kind, const juce::File& f)
+{
+    auto* n = dynamic_cast<NamAmp*> (&inst);
+    if (n == nullptr || kind < 0 || kind >= namamp::numFiles) return false;
+    n->setFile (kind, f);
+    return true;
 }
 
 bool setEqListenBand (juce::AudioPluginInstance& inst, int band)

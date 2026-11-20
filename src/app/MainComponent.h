@@ -116,6 +116,7 @@ private:
     std::unique_ptr<Tone3000Panel> t3kPanel;
     std::unique_ptr<ToolWindow> t3kWindow;
     void openTone3000 (RigEditor&, bool cab);
+    void openTone3000 (bool cab, const juce::String& targetName, std::function<void (const juce::File&, bool isIr)> load);
     void openTuner();
     void openProjectSheet();
     void openMetronome();
