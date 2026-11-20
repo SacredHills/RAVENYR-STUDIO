@@ -34,6 +34,17 @@ public:
     MainComponent* content = nullptr;
 };
 
+/** The app is closing: nothing may show, raise or restore a window from here on, and every window goes at once (plugin
+    editors and tool windows first, the main window last, so focus never lands on a window that is about to go anyway). */
+static void hideAllWindowsNow (juce::Component* main)
+{
+    FloatAboveApp::shuttingDown = true;
+    for (int i = juce::Desktop::getInstance().getNumComponents(); --i >= 0;)
+        if (auto* c = juce::Desktop::getInstance().getComponent (i))
+            if (c != main) c->setVisible (false);
+    if (main != nullptr) main->setVisible (false);
+}
+
 class Application : public juce::JUCEApplication
 {
 public:
@@ -107,12 +118,7 @@ public:
         juce::Logger::writeToLog ("Shutting down");
         armShutdownWatchdog (12);
         // every window goes at once (plugin editors and tool windows too, so nothing is left flashing on its own)
-        // the main window goes last: hiding it first hands focus to one of the other windows, which then flashes up
-        // for a moment before it is hidden too
-        for (int i = juce::Desktop::getInstance().getNumComponents(); --i >= 0;)
-            if (auto* c = juce::Desktop::getInstance().getComponent (i))
-                if (c != window.get()) c->setVisible (false);
-        if (window != nullptr) window->setVisible (false);
+        hideAllWindowsNow (window.get());
         window.reset();
         properties.closeFiles();
         juce::Logger::writeToLog ("Clean shutdown");
@@ -126,7 +132,7 @@ public:
     {
         if (scanner != nullptr) { quit(); return; }
         if (window != nullptr && window->content != nullptr)
-            window->content->requestQuit ([] { juce::JUCEApplication::getInstance()->quit(); });
+            window->content->requestQuit ([this] { hideAllWindowsNow (window.get()); juce::JUCEApplication::getInstance()->quit(); });
         else
             quit();
     }

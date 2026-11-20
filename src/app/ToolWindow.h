@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "StudioLookAndFeel.h"
 #include "GlobalKeys.h"
@@ -17,6 +18,8 @@ public:
     void aboutToHide();
     /** The main application window the others float above (set once by the main component). */
     static void setMainWindow (juce::Component* main);
+    /** Set once the app is closing: nothing is re-owned, restored or raised any more, so no window can flash up again. */
+    static inline std::atomic<bool> shuttingDown { false };
 private:
     struct Impl;
     std::unique_ptr<Impl> impl;
@@ -43,6 +46,7 @@ public:
 
     void showFront()
     {
+        if (FloatAboveApp::shuttingDown) return;
         setVisible (true);
         toFront (true);
     }

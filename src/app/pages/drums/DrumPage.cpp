@@ -1062,7 +1062,13 @@ void DrumPage::setActive (bool shouldBeActive, bool keepPlaying)
             return;
         }
         lingering = false;
-        if (e.isPlaying()) e.stop();
+        if (e.isPlaying())
+        {
+            // the editor or the mixer is playing the project: leave it playing; the drums take over the engine at Play
+            deferred = true;
+            grid.updateSize (viewport.getMaximumVisibleWidth());
+            return;
+        }
         e.tabMode = true;
         rebuildSequence();
         pushEngine();
@@ -1070,6 +1076,12 @@ void DrumPage::setActive (bool shouldBeActive, bool keepPlaying)
     }
     else
     {
+        if (deferred)   // never took over the engine
+        {
+            deferred = false;
+            if (! keepPlaying && e.isPlaying()) e.stop();
+            return;
+        }
         if (keepPlaying && e.isPlaying()) { lingering = true; return; }   // the timer restores the engine when it stops
         if (e.isPlaying()) e.stop();
         e.tabMode = false;
@@ -1091,7 +1103,7 @@ bool DrumPage::endBackground()
 
 void DrumPage::rebuildSequence()
 {
-    if (! active) return;
+    if (! active || deferred) return;
     auto seq = buildDrumSequence (drums, songMode ? juce::ValueTree() : current(), doc.tempo());
     host.engine.submitTabSequence (std::move (seq));
     pushEngine();
@@ -1099,7 +1111,7 @@ void DrumPage::rebuildSequence()
 
 void DrumPage::pushEngine()
 {
-    if (! active) return;
+    if (! active || deferred) return;
     auto& e = host.engine;
     e.punchEnabled = false;
     e.clickWhilePlaying = clickButton.getToggleState();
@@ -1128,6 +1140,7 @@ void DrumPage::startPlayback()
     else if (! current().isValid()) return;
     const double spq = 60.0 / juce::jmax (10.0, doc.tempo());
     host.engine.stop();
+    if (deferred) { deferred = false; host.engine.tabMode = true; }   // now the drums take the engine
     rebuildSequence();
     pushEngine();
     host.engine.locateSeconds (songMode ? (seekSet ? (songOffsetQ() + grid.getStartQ()) * spq : 0.0) : grid.getStartQ() * spq);
@@ -1164,7 +1177,11 @@ void DrumPage::timerCallback()
         }
     }
     if (lingering && ! host.engine.isPlaying()) { lingering = false; host.engine.tabMode = false; doc.refreshEngine(); }
-    if (! active) return;
+    if (! active || deferred)
+    {
+        if (deferred) { grid.setPlayheadQ (-1.0); if (strip.playQ >= 0.0) { strip.playQ = -1.0; strip.repaint(); } }
+        return;
+    }
     auto& e = host.engine;
     const bool playing = e.isPlaying();
     if (! playing)

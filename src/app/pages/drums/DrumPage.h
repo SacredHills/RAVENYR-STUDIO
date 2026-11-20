@@ -107,7 +107,7 @@ private:
     SessionController& session;
     juce::PropertiesFile& settings;
     juce::ValueTree root, drums;
-    bool active = false, lingering = false, updating = false, songMode = false;
+    bool active = false, lingering = false, deferred = false, updating = false, songMode = false;
     juce::uint32 seed = 1;
     bool seekSet = false;   // the user clicked a play position in the grid's bar numbers
 

@@ -94,7 +94,6 @@ target_sources(ff_core PRIVATE
     src/core/ProjectFile.cpp
     src/core/Timeline.cpp
     src/core/MidiClip.cpp
-    src/core/KeysGen.cpp
     src/core/Automation.cpp
     src/core/TabModel.cpp
     src/core/Exercises.cpp
@@ -241,7 +240,6 @@ if(FF_BUILD_TESTS)
         tests/GuitarProTests.cpp
         tests/MusicXmlTests.cpp
         tests/DrumTests.cpp
-        tests/KeysGenTests.cpp
         tests/AmpRigTests.cpp
         tests/RoutingTests.cpp
         tests/BuiltinPluginTests.cpp

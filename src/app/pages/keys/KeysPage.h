@@ -4,13 +4,11 @@
 #include "../../EngineHost.h"
 #include "../../SessionController.h"
 #include "../arrange/PianoRoll.h"
-#include "core/KeysGen.h"
 
 namespace ff
 {
-/** MIDI Studio, Keys part: piano, synth and bass. A MIDI clip on an instrument track, edited in the piano roll, with a
-    generator (chords, arpeggios, bass lines, riffs in a key / scale / progression) that fills the clip. Plays the project
-    (so it can be heard with everything else), looping the clip. */
+/** MIDI Studio, Keys part: piano, synth and bass. Each keys track is one MIDI clip, edited in the piano roll. Plays the
+    project (so it can be heard with everything else), looping the clip. */
 class KeysPage : public juce::Component, private juce::ValueTree::Listener, private juce::AsyncUpdater, private juce::Timer
 {
 public:
@@ -31,15 +29,14 @@ private:
     SessionController& session;
     juce::PropertiesFile& settings;
     juce::ValueTree root, track, clip;
-    std::vector<juce::ValueTree> trackList, clipList;
+    std::vector<juce::ValueTree> trackList;
     std::unique_ptr<PianoRoll> roll;
     bool active = false, lingering = false, updating = false;
-    int seedCounter = 1;
 
-    juce::ComboBox trackCombo, clipCombo, styleCombo, keyCombo, scaleCombo, progCombo, genCombo, octaveCombo, barsCombo;
-    juce::TextButton newTrackButton { "+ Track" }, deleteTrackButton { "Delete track" }, instrumentButton { "Instrument..." }, backButton { "|<" }, loopButton { "Loop" },
-                     generateButton { "Generate" }, newClipButton { "New clip" }, deleteClipButton { "Delete clip" };
-    juce::Label hint;
+    juce::ComboBox trackCombo, barsCombo;
+    juce::TextButton newTrackButton { "+ Track" }, deleteTrackButton { "Delete track" }, instrumentButton { "Instrument..." },
+                     backButton { "|<" }, loopButton { "Loop" };
+    juce::Label lengthLabel { {}, "Length" }, hint;
 
     void refresh();
     void handleAsyncUpdate() override { refresh(); }
@@ -48,12 +45,10 @@ private:
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { triggerAsyncUpdate(); }
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { triggerAsyncUpdate(); }
 
-    void applyStyleDefaults();
     juce::ValueTree makeTrack();
+    juce::ValueTree firstClip (const juce::ValueTree& t) const;
     juce::ValueTree makeClip (int bars);
-    int tsNum() const;
-    int tsDen() const;
-    void generate();
+    double barQuarters() const;
     void startPlayback();
     void message (const juce::String& title, const juce::String& text);
 };

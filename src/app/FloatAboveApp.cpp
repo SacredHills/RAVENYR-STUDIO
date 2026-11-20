@@ -40,6 +40,7 @@ struct FloatAboveApp::Impl final : private juce::ComponentListener, private juce
         the closing through it), and if the main window ends up minimised by it, bring it back. */
     void releaseOwner()
     {
+        if (shuttingDown) return;
         auto* main = mainWin().getComponent();
         const bool mainWasMinimised = main != nullptr && main->getPeer() != nullptr && main->getPeer()->isMinimised();
 #if defined (_WIN32)
@@ -59,6 +60,7 @@ struct FloatAboveApp::Impl final : private juce::ComponentListener, private juce
 
     void attachOwner()
     {
+        if (shuttingDown) return;
 #if defined (_WIN32)
         auto* main = mainWin().getComponent();
         if (main == nullptr || ! win.isVisible()) return;
