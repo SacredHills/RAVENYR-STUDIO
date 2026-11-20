@@ -27,6 +27,7 @@ struct PlaySource final : GraphMixer::Source
 {
     juce::int64 pos = 0;
     float constant = 0.0f;   // audio tracks play this level
+    double masterTime() const noexcept override { return (double) pos / sr; }
     bool fill (int, PlayTrack& t, float* L, float* R, int n) noexcept override
     {
         BlockTiming bt;
@@ -348,6 +349,32 @@ public:
             g = buildPlaybackGraph (tracks, noBundle, cache, o);
             const auto o2 = render (*g, 0.5, 0.25f);
             expectWithinAbsoluteError (o2[(size_t) (0.4 * sr)], 0.5f, 0.01f);   // +6 dB from the automation
+        }
+
+        beginTest ("master pan automation");
+        {
+            juce::ValueTree tracks ("TRACKS");
+            auto t = tl::createTrack ("Gtr", 0);
+            tracks.appendChild (t, nullptr);
+            juce::ValueTree master (project::ids::MASTER);
+            au::setPoints (au::lane (master, au::panParam, true, nullptr), { { 0.0, 1.0f } }, nullptr);   // hard right
+            GraphBuildOptions o;
+            o.sampleRate = sr;
+            o.masterNode = master;
+            auto g = buildPlaybackGraph (tracks, noBundle, cache, o);
+            GraphMixer m;
+            m.prepare (256, sr);
+            PlaySource src;
+            src.constant = 0.5f;
+            std::vector<float> L (256, 0.0f), R (256, 0.0f);
+            for (int b = 0; b < 4; ++b)
+            {
+                std::fill (L.begin(), L.end(), 0.0f);
+                std::fill (R.begin(), R.end(), 0.0f);
+                src.pos = b * 256;
+                m.mix (*g, src, L.data(), R.data(), 256);
+            }
+            expect (std::abs (L[255]) < 1.0e-4f && R[255] > 0.6f, "master pan hard right");
         }
 
         beginTest ("export renders instrument tracks");

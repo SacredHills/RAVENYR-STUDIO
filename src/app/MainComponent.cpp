@@ -257,7 +257,13 @@ void MainComponent::showSection (int index)
 {
     // the tab and drum sections drive the engine in score mode; switch the old one off first
     if (tabPage != nullptr && index != tabsSection) tabPage->setActive (false);
-    if (drumPage != nullptr && index != drumSection) drumPage->setActive (false);
+    if (drumPage != nullptr && index != drumSection)
+    {
+        // MIDI Studio keeps playing when you look at the editor or the mixer; any other section ends it
+        const bool keep = index == 0 || index == 1;
+        drumPage->setActive (false, keep);
+        if (! keep) drumPage->endBackground();
+    }
     if (tabPage != nullptr && index == tabsSection) tabPage->setActive (true);
     if (drumPage != nullptr && index == drumSection) drumPage->setActive (true);
     if (trainingPage != nullptr) trainingPage->setActive (index == trainingSection);
@@ -369,13 +375,13 @@ void MainComponent::togglePlayForSection()
     if (currentSection == tabsSection) tabPage->togglePlay();
     else if (currentSection == drumSection) drumPage->togglePlay();
     else if (currentSection == trainingSection) trainingPage->togglePlay();
-    else host.engine.togglePlay();
+    else if (! drumPage->endBackground()) host.engine.togglePlay();   // play/stop ends MIDI Studio audio left playing in the background
 }
 
 void MainComponent::returnToStartForSection()
 {
     if (currentSection == drumSection) drumPage->goToStart();
-    else host.engine.returnToZero();
+    else { drumPage->endBackground(); host.engine.returnToZero(); }
 }
 
 void MainComponent::layoutPages()

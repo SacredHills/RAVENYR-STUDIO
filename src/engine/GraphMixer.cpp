@@ -270,11 +270,11 @@ void GraphMixer::mix (PlaybackGraph& g, Source& source, float* outL, float* outR
         }
         p = end;
     }
-    float autoGain = 1.0f;   // master automation: plugin parameters now, the volume after the plugins
+    float autoGain = 1.0f, autoPan = 0.0f;   // master automation: plugin parameters now, the volume after the plugins
     if (! g.masterLanes.empty())
     {
         const double mt = source.masterTime();
-        if (mt >= 0.0) autoGain = applyMasterLanes (g, mt);
+        if (mt >= 0.0) autoGain = applyMasterLanes (g, mt, &autoPan);
     }
     if (g.masterInserts != nullptr)   // outL / outR started out silent, so this is the whole mix
     {
@@ -292,24 +292,26 @@ void GraphMixer::mix (PlaybackGraph& g, Source& source, float* outL, float* outR
     if (! g.masterLanes.empty())
     {
         const float from = g.masterPrevGain < 0.0f ? autoGain : g.masterPrevGain;   // ramped, so moving automation does not click
-        if (std::abs (from - autoGain) < 1.0e-6f)
+        const float panFrom = g.masterPrevPan < -1.0f ? autoPan : g.masterPrevPan;
+        if (std::abs (from - autoGain) < 1.0e-6f && std::abs (panFrom - autoPan) < 1.0e-6f)
         {
-            if (std::abs (autoGain - 1.0f) > 1.0e-6f)
-            {
-                juce::FloatVectorOperations::multiply (outL, autoGain, n);
-                juce::FloatVectorOperations::multiply (outR, autoGain, n);
-            }
+            float gl, gr;
+            panGains (autoPan, autoGain, gl, gr);
+            if (std::abs (gl - 1.0f) > 1.0e-6f) juce::FloatVectorOperations::multiply (outL, gl, n);
+            if (std::abs (gr - 1.0f) > 1.0e-6f) juce::FloatVectorOperations::multiply (outR, gr, n);
         }
         else
         {
-            const float step = (autoGain - from) / (float) n;
+            const float step = (autoGain - from) / (float) n, panStep = (autoPan - panFrom) / (float) n;
             for (int i = 0; i < n; ++i)
             {
-                const float k = from + step * (float) (i + 1);
-                outL[i] *= k;
-                outR[i] *= k;
+                float gl, gr;
+                panGains (panFrom + panStep * (float) (i + 1), from + step * (float) (i + 1), gl, gr);
+                outL[i] *= gl;
+                outR[i] *= gr;
             }
         }
+        g.masterPrevPan = autoPan;
         g.masterPrevGain = autoGain;
     }
 }

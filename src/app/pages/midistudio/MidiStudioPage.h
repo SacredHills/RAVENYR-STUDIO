@@ -28,12 +28,14 @@ public:
     }
 
     void rebind() { drums.rebind(); keys.rebind(); }
-    void setActive (bool on)
+    void setActive (bool on, bool keepPlaying = false)
     {
         pageActive = on;
-        drums.setActive (on && mode == 0);
-        keys.setActive (on && mode == 1);
+        drums.setActive (on && mode == 0, keepPlaying);
+        keys.setActive (on && mode == 1, keepPlaying);
     }
+    /** Stops playback that was left running in the background (the user went to another section). */
+    bool endBackground() { const bool a = drums.endBackground(), b = keys.endBackground(); return a || b; }
     void togglePlay() { if (mode == 0) drums.togglePlay(); else keys.togglePlay(); }
     void goToStart() { if (mode == 0) drums.goToStart(); else keys.goToStart(); }
 

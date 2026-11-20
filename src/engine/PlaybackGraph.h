@@ -94,6 +94,7 @@ struct PlaybackGraph
     std::vector<std::pair<int, int>> masterSidechains;   // like PlayTrack::sidechains, for the master plugins
     std::array<const float*, fx::InsertChain::maxSlots> masterScL {}, masterScR {};
     std::vector<PlayTrack::Lane> masterLanes;         // automation of the master bus: its volume and its plugins' parameters
+    float masterPrevPan = -2.0f;                      // audio thread: the master pan automation of the last block (< -1: none yet)
     float masterPrevGain = -1.0f;                     // audio thread: the master volume automation of the last block (-1: none yet)
     double sampleRate = 48000.0;
     int missingClips = 0; // clips whose audio is not loaded (yet)
@@ -121,7 +122,7 @@ void renderTrackClips (const PlayTrack& track, juce::int64 t0, int n, float* lef
 
 /** Moves the master bus's plugin parameters to their automation at `timeSec` and returns the master volume automation
     there as a linear gain (1 without a volume lane). Audio thread. */
-float applyMasterLanes (PlaybackGraph&, double timeSec) noexcept;
+float applyMasterLanes (PlaybackGraph&, double timeSec, float* pan = nullptr) noexcept;   // *pan: the master pan automation (-1..1, 0 without a pan lane)
 
 /** Samples the track's rig and inserts delay its sound by (audio thread). Playback reads the track's clips that much
     earlier, so recorded audio stays in time with the other tracks (live monitoring cannot be compensated). */

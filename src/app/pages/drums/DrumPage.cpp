@@ -5,6 +5,8 @@
 #include "engine/DrumSynth.h"
 #include "core/Timeline.h"
 #include "core/ProjectFile.h"
+#include "core/MidiClip.h"
+#include "core/RigModel.h"
 #include "core/GuitarPro.h"
 #include <cmath>
 
@@ -1046,13 +1048,20 @@ void DrumPage::valueTreePropertyChanged (juce::ValueTree& node, const juce::Iden
 
 // ------------------------------------------------------------------ engine
 
-void DrumPage::setActive (bool shouldBeActive)
+void DrumPage::setActive (bool shouldBeActive, bool keepPlaying)
 {
     if (active == shouldBeActive) return;
     active = shouldBeActive;
     auto& e = host.engine;
     if (active)
     {
+        if (lingering && e.isPlaying())   // coming back while it is still playing: just take over the display
+        {
+            lingering = false;
+            grid.updateSize (viewport.getMaximumVisibleWidth());
+            return;
+        }
+        lingering = false;
         if (e.isPlaying()) e.stop();
         e.tabMode = true;
         rebuildSequence();
@@ -1061,10 +1070,23 @@ void DrumPage::setActive (bool shouldBeActive)
     }
     else
     {
+        if (keepPlaying && e.isPlaying()) { lingering = true; return; }   // the timer restores the engine when it stops
         if (e.isPlaying()) e.stop();
         e.tabMode = false;
         doc.refreshEngine();
     }
+}
+
+bool DrumPage::endBackground()
+{
+    if (! lingering) return false;
+    lingering = false;
+    auto& e = host.engine;
+    const bool wasPlaying = e.isPlaying();
+    if (wasPlaying) e.stop();
+    e.tabMode = false;
+    doc.refreshEngine();
+    return wasPlaying;
 }
 
 void DrumPage::rebuildSequence()
@@ -1124,6 +1146,24 @@ void DrumPage::timerCallback()
     // samples are resampled to the device rate: reload when it changes (and retry hand-overs that did not fit)
     if (host.engine.getSampleRate() > 0.0 && (std::abs (host.engine.getSampleRate() - loadedRate) > 0.5 || kitDirty))
         reloadKit (std::abs (host.engine.getSampleRate() - loadedRate) > 0.5);
+    {
+        // the per-drum mixer drives the built-in kit only: with a plugin instrument its own mixer does the job
+        const auto n = drums::find (root).getChildWithName (midiclip::INSTRUMENT);
+        const bool plugin = n.isValid() && n[rig::ids::desc].toString().isNotEmpty();
+        if (plugin == mixerButton.isEnabled())
+        {
+            if (plugin && mixerButton.getToggleState())
+            {
+                mixerButton.setToggleState (false, juce::dontSendNotification);
+                mixer.setVisible (false);
+                viewport.setVisible (true);
+            }
+            mixerButton.setEnabled (! plugin);
+            mixerButton.setTooltip (plugin ? "The per-drum mixer is for the built-in kit. With a plugin instrument, use the instrument's own mixer."
+                                           : "Volume, pan, mute and solo for each drum");
+        }
+    }
+    if (lingering && ! host.engine.isPlaying()) { lingering = false; host.engine.tabMode = false; doc.refreshEngine(); }
     if (! active) return;
     auto& e = host.engine;
     const bool playing = e.isPlaying();

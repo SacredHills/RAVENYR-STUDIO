@@ -165,6 +165,7 @@ ExportResult exportAudio (const juce::ValueTree& tracks, const juce::File& media
         for (int ti : job.trackIndices) include[(size_t) ti] = 1;
         source.include = &include;
         graph->masterPrevGain = -1.0f;
+        graph->masterPrevPan = -2.0f;
         for (auto& l : graph->masterLanes) l.last = -1.0f;
         for (auto& t : graph->tracks)   // every render starts from silence
         {
@@ -172,17 +173,26 @@ ExportResult exportAudio (const juce::ValueTree& tracks, const juce::File& media
             t.resetState();
         }
 
-        for (juce::int64 done = 0; done < total; done += block)
+        // Run up to the start first, with the output thrown away: plugin instruments and effects that wake up slowly (or
+        // report latency) would otherwise lose the first part of the render. Positions before 0 are simply silent.
+        juce::int64 preroll = 0;
+        bool anyInstrument = false;
+        for (const auto& t : graph->tracks)
         {
-            const int n = (int) juce::jmin ((juce::int64) block, total - done);
+            preroll = juce::jmax (preroll, (juce::int64) readAhead (t));
+            anyInstrument = anyInstrument || t.instrument != nullptr;
+        }
+        if (graph->masterInserts != nullptr) preroll += graph->masterInserts->latency();
+        if (anyInstrument) preroll += (juce::int64) std::llround (0.5 * s.sampleRate);
+        const auto renderBlock = [&] (juce::int64 done, int n) {
             std::fill (l.begin(), l.begin() + n, 0.0f);
             std::fill (r.begin(), r.begin() + n, 0.0f);
             source.at = start + done;
             {
                 fx::TransportPlayHead::Info ti;
-                const double sec = (double) (start + done) / s.sampleRate;
+                const double sec = juce::jmax (0.0, (double) (start + done) / s.sampleRate);
                 ti.playing = true;
-                ti.samples = start + done;
+                ti.samples = juce::jmax ((juce::int64) 0, start + done);
                 ti.sampleRate = s.sampleRate;
                 ti.ppq = s.tempoMap.quarterAtSeconds (sec);
                 ti.bpm = s.tempoMap.bpmAtSeconds (sec);
@@ -191,6 +201,18 @@ ExportResult exportAudio (const juce::ValueTree& tracks, const juce::File& media
                 fx::transportPlayHead().update (ti);
             }
             mixer.mix (*graph, source, l.data(), r.data(), n);
+        };
+        for (juce::int64 pos = -preroll; pos < 0;)
+        {
+            const int n = (int) juce::jmin ((juce::int64) block, -pos);
+            renderBlock (pos, n);
+            pos += n;
+        }
+
+        for (juce::int64 done = 0; done < total; done += block)
+        {
+            const int n = (int) juce::jmin ((juce::int64) block, total - done);
+            renderBlock (done, n);
             out.addFrom (0, (int) done, l.data(), n);
             out.addFrom (1, (int) done, r.data(), n);
             if (progress && ! progress (((double) ji + (double) done / (double) total) / (double) jobs.size()))

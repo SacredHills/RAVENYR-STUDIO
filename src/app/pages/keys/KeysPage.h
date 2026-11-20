@@ -11,13 +11,14 @@ namespace ff
 /** MIDI Studio, Keys part: piano, synth and bass. A MIDI clip on an instrument track, edited in the piano roll, with a
     generator (chords, arpeggios, bass lines, riffs in a key / scale / progression) that fills the clip. Plays the project
     (so it can be heard with everything else), looping the clip. */
-class KeysPage : public juce::Component, private juce::ValueTree::Listener, private juce::AsyncUpdater
+class KeysPage : public juce::Component, private juce::ValueTree::Listener, private juce::AsyncUpdater, private juce::Timer
 {
 public:
     KeysPage (ProjectDocument&, EngineHost&, SessionController&, juce::PropertiesFile&);
     ~KeysPage() override;
     void rebind();
-    void setActive (bool);
+    void setActive (bool, bool keepPlaying = false);
+    bool endBackground();   // stops background playback and restores the project's loop settings; true if it was playing
     void togglePlay();
     void goToStart();
     void paint (juce::Graphics&) override;
@@ -32,16 +33,17 @@ private:
     juce::ValueTree root, track, clip;
     std::vector<juce::ValueTree> trackList, clipList;
     std::unique_ptr<PianoRoll> roll;
-    bool active = false, updating = false;
+    bool active = false, lingering = false, updating = false;
     int seedCounter = 1;
 
     juce::ComboBox trackCombo, clipCombo, styleCombo, keyCombo, scaleCombo, progCombo, genCombo, octaveCombo, barsCombo;
-    juce::TextButton newTrackButton { "+ Track" }, instrumentButton { "Instrument..." }, backButton { "|<" }, loopButton { "Loop" },
+    juce::TextButton newTrackButton { "+ Track" }, deleteTrackButton { "Delete track" }, instrumentButton { "Instrument..." }, backButton { "|<" }, loopButton { "Loop" },
                      generateButton { "Generate" }, newClipButton { "New clip" }, deleteClipButton { "Delete clip" };
     juce::Label hint;
 
     void refresh();
     void handleAsyncUpdate() override { refresh(); }
+    void timerCallback() override { if (! host.engine.isPlaying()) endBackground(); }
     void valueTreePropertyChanged (juce::ValueTree& n, const juce::Identifier&) override { if (! n.hasType (midiclip::MIDI)) triggerAsyncUpdate(); }
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { triggerAsyncUpdate(); }
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { triggerAsyncUpdate(); }

@@ -93,7 +93,8 @@ public:
     DrumPage (ProjectDocument&, EngineHost&, SessionController&, juce::PropertiesFile&);
     ~DrumPage() override;
     void rebind();
-    void setActive (bool);
+    void setActive (bool, bool keepPlaying = false);   // keepPlaying: leaving while playing lets it carry on in the background
+    bool endBackground();                              // stops background playback and restores the project engine; true if it was playing
     void togglePlay();
     /** Back to the start of the pattern (or song); keeps playing if it was playing. */
     void goToStart();
@@ -106,7 +107,7 @@ private:
     SessionController& session;
     juce::PropertiesFile& settings;
     juce::ValueTree root, drums;
-    bool active = false, updating = false, songMode = false;
+    bool active = false, lingering = false, updating = false, songMode = false;
     juce::uint32 seed = 1;
     bool seekSet = false;   // the user clicked a play position in the grid's bar numbers
 

@@ -58,6 +58,17 @@ KeysPage::KeysPage (ProjectDocument& d, EngineHost& h, SessionController& s, juc
         clip = {};
         refresh();
     };
+    deleteTrackButton.setTooltip ("Delete this track and its clips (undo brings it back)");
+    deleteTrackButton.onClick = [this] {
+        if (! track.isValid()) return;
+        if (host.engine.isPlaying()) host.engine.stop();
+        auto t = track;
+        track = {};
+        clip = {};
+        roll.reset();
+        session.deleteTrack (t);   // one undo step
+        refresh();
+    };
     instrumentButton.setTooltip ("Choose the instrument (VST3 / LV2 / built-in synth) that plays this part");
     instrumentButton.onClick = [this] { if (track.isValid()) session.showInstrumentContextMenu (track, &instrumentButton); };
     backButton.setTooltip ("Back to the start of the clip (Home)");
@@ -84,7 +95,7 @@ KeysPage::KeysPage (ProjectDocument& d, EngineHost& h, SessionController& s, juc
     };
 
     for (auto* c : std::initializer_list<juce::Component*> { &trackCombo, &clipCombo, &styleCombo, &keyCombo, &scaleCombo, &progCombo, &genCombo,
-                                                             &octaveCombo, &barsCombo, &newTrackButton, &instrumentButton, &backButton, &loopButton,
+                                                             &octaveCombo, &barsCombo, &newTrackButton, &deleteTrackButton, &instrumentButton, &backButton, &loopButton,
                                                              &generateButton, &newClipButton, &deleteClipButton, &hint })
         addAndMakeVisible (c);
     hint.setJustificationType (juce::Justification::centred);
@@ -122,14 +133,34 @@ void KeysPage::applyStyleDefaults()
     }
 }
 
-void KeysPage::setActive (bool on)
+void KeysPage::setActive (bool on, bool keepPlaying)
 {
     if (active == on) return;
     active = on;
     auto& e = host.engine;
-    if (e.isPlaying()) e.stop();
-    if (on) refresh();
-    else doc.refreshEngine();   // the project's own loop and click settings again
+    if (on)
+    {
+        if (lingering) { lingering = false; stopTimer(); refresh(); return; }   // still playing: carry on
+        if (e.isPlaying()) e.stop();
+        refresh();
+    }
+    else
+    {
+        if (keepPlaying && e.isPlaying()) { lingering = true; startTimerHz (20); return; }
+        if (e.isPlaying()) e.stop();
+        doc.refreshEngine();   // the project's own loop and click settings again
+    }
+}
+
+bool KeysPage::endBackground()
+{
+    if (! lingering) return false;
+    lingering = false;
+    stopTimer();
+    const bool wasPlaying = host.engine.isPlaying();
+    if (wasPlaying) host.engine.stop();
+    doc.refreshEngine();
+    return wasPlaying;
 }
 
 void KeysPage::togglePlay()
@@ -254,6 +285,7 @@ void KeysPage::refresh()
     const bool hasClip = clip.isValid();
     deleteClipButton.setEnabled (hasClip);
     instrumentButton.setEnabled (track.isValid());
+    deleteTrackButton.setEnabled (track.isValid());
     hint.setVisible (! hasClip);
     hint.setText (track.isValid() ? "No clip on this track yet. Click Generate for a pattern, or New clip for an empty one."
                                   : "No keys track yet. Pick Piano, Synth or Bass, then click Generate.", juce::dontSendNotification);
@@ -299,6 +331,7 @@ void KeysPage::resized()
     row0.removeFromLeft (tabsReserve);
     trackCombo.setBounds (row0.removeFromLeft (170)); row0.removeFromLeft (4);
     newTrackButton.setBounds (row0.removeFromLeft (70)); row0.removeFromLeft (4);
+    deleteTrackButton.setBounds (row0.removeFromLeft (96)); row0.removeFromLeft (4);
     instrumentButton.setBounds (row0.removeFromLeft (108));
 
     auto row1 = r.removeFromTop (42).reduced (8, 7);

@@ -2948,7 +2948,7 @@ void ArrangeView::showLaneChooser (juce::ValueTree track, juce::Component* targe
     };
     m.addSectionHeader ("Automation lane  (* = has points)");
     add (m, automation::volumeParam, "Volume");
-    if (! track.hasType (pids::MASTER)) add (m, automation::panParam, "Pan");
+    add (m, automation::panParam, "Pan");
     for (int i = 0; i < rig::numInserts (track); ++i)
     {
         const auto node = rig::insertNode (track, i);
