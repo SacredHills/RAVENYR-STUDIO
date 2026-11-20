@@ -57,7 +57,7 @@ Tone3000Panel::Tone3000Panel (t3k::Client& c) : client (c)
         keyEditor.setText (client.clientId(), false);
         setStatus ("Pick a tone on the TONE3000 page in your browser. If it says \"Unknown client_id\", copy the publishable key again "
                    "from your TONE3000 account settings > API keys.");
-        client.selectTone (format(), cabMode ? "cab" : "", [safe = juce::Component::SafePointer<Tone3000Panel> (this)] (int toneId, juce::String err) {
+        client.selectTone (format(), cabMode ? "cab" : "amp", [safe = juce::Component::SafePointer<Tone3000Panel> (this)] (int toneId, juce::String err) {
             if (safe == nullptr) return;
             safe->refreshAccount();
             if (err.isNotEmpty()) { safe->setStatus (err == "cancelled" ? "Nothing picked." : err, err != "cancelled"); return; }
@@ -150,7 +150,7 @@ void Tone3000Panel::reload()
     const int req = ++requestId;
     setStatus ("Loading...");
     // trending has only 10 tones of every kind: ask for cabinets when browsing IRs
-    const juce::String gear = (feed == Client::Feed::trending && kindCombo.getSelectedId() == 3) ? "cab" : "";
+    const juce::String gear = feed != Client::Feed::trending ? juce::String() : kindCombo.getSelectedId() == 3 ? "cab" : kindCombo.getSelectedId() == 2 ? "amp" : "";
     client.listTones (feed, searchBox.getText().trim(), page, gear, [safe = juce::Component::SafePointer<Tone3000Panel> (this), req] (t3k::TonePage p, juce::String err) {
         if (safe == nullptr || req != safe->requestId) return;
         if (err.isNotEmpty()) { safe->setStatus (err, true); return; }
@@ -172,7 +172,9 @@ void Tone3000Panel::applyFilter()
     {
         if (! loadable (t)) { ++unloadable; continue; }   // NAM and IR tones (each loads into its own block)
         const bool isCab = t.format == "ir" || t.gear == "cab";
-        if ((kind == 2 && isCab) || (kind == 3 && ! isCab)) continue;
+        // "Amp models only" means amp heads: full rigs (amp + cab captures) and pedals are not amp models for the amp block
+        const bool ampHead = t.gear.isEmpty() || t.gear == "amp";
+        if ((kind == 2 && (isCab || ! ampHead)) || (kind == 3 && ! isCab)) continue;
         shownTones.add (t);
     }
     toneList.updateContent();

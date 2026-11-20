@@ -233,6 +233,7 @@ MainComponent::~MainComponent()
     effectsPage.reset();
     t3kClient.reset();
     milestonePages.clear();
+    projectWindow.reset();
     studioPage.reset();
     rigWindows.clear();
     t3kWindow.reset();
@@ -386,15 +387,12 @@ void MainComponent::returnToStartForSection()
 
 void MainComponent::layoutPages()
 {
-    // the editor's Arrange / Project tabs share the row with the section buttons; other pages sit under it
     auto r = pagesArea;
     nav.setBounds (r.removeFromTop (SectionNav::barHeight));
-    nav.fillBackground = currentSection != 0;
     nav.setPaintingIsUnclipped (false);
     nav.repaint();
-    auto pageArea = currentSection == 0 ? pagesArea : r;
     for (auto* p : pages)
-        p->setBounds (pageArea);
+        p->setBounds (r);
     nav.toFront (false);
 }
 
@@ -549,7 +547,6 @@ bool MainComponent::isInterestedInFileDrag (const juce::StringArray& files)
 void MainComponent::filesDropped (const juce::StringArray& files, int, int)
 {
     showSection (0);
-    studioPage->showArrange();
     studioPage->arrange.importDropped (files, (int) studioPage->arrange.geo.xFor (studioPage->arrange.playhead()), -1);   // new tracks at the playhead
 }
 
@@ -658,6 +655,14 @@ void MainComponent::openTuner()
     tunerWindow->showFront();
 }
 
+void MainComponent::openProjectSheet()
+{
+    if (projectWindow == nullptr)
+        projectWindow = std::make_unique<ToolWindow> ("Project", studioPage->sheet, 760, 440, settings, "projectWindow");
+    studioPage->refreshInfo();
+    projectWindow->showFront();
+}
+
 void MainComponent::openMetronome()
 {
     if (metronomeWindow == nullptr)
@@ -684,7 +689,7 @@ void MainComponent::showShortcutEditor()
 
 void MainComponent::getAllCommands (juce::Array<juce::CommandID>& c)
 {
-    c.addArray ({ cmdNew, cmdOpen, cmdSave, cmdSaveAs, cmdReveal, cmdUndo, cmdRedo, cmdPlayStop, cmdReturnToZero, cmdBackToPlayStart,
+    c.addArray ({ cmdNew, cmdOpen, cmdSave, cmdSaveAs, cmdReveal, cmdProject, cmdUndo, cmdRedo, cmdPlayStop, cmdReturnToZero, cmdBackToPlayStart,
                   cmdToggleClick, cmdTapTempo, cmdPracticeMetronome, cmdShortcuts, cmdAbout, cmdTunerWindow, cmdMetronomeWindow, cmdPlugins,
                   cmdRecord, cmdLoop, cmdPunch, cmdAddTrack, cmdImport, cmdExport, cmdSplit, cmdDuplicate, cmdCombineMidi, cmdDelete,
                   cmdCopy, cmdCut, cmdPaste, cmdSelectAll, cmdAddMarker, cmdZoomIn, cmdZoomOut, cmdZoomFit });
@@ -703,6 +708,7 @@ void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommand
         case cmdOpen:  info.setInfo ("Open Project...", "Open a .ravenyr project", "File", 0); info.addDefaultKeypress ('o', cmd); break;
         case cmdSave:  info.setInfo ("Save", "Save the project", "File", 0); info.addDefaultKeypress ('s', cmd); break;
         case cmdSaveAs: info.setInfo ("Save As...", "Save the project to a new location", "File", 0); info.addDefaultKeypress ('s', cmd | shift); break;
+        case cmdProject: info.setInfo ("Project Info...", "The project's name, key, notes and file info", "File", 0); break;
         case cmdReveal: info.setInfo ("Show Project Folder", "Reveal the project bundle", "File", 0); info.setActive (doc->hasLocation()); break;
         case cmdUndo:
             info.setInfo ("Undo " + doc->undo().getUndoDescription(), "Undo", "Edit", 0);
@@ -765,6 +771,7 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdSave: saveThen (nullptr); return true;
         case cmdSaveAs: saveAsThen (nullptr); return true;
         case cmdReveal: if (doc->hasLocation()) doc->getBundle().revealToUser(); return true;
+        case cmdProject: openProjectSheet(); return true;
         case cmdUndo: pluginManager->commitPendingChanges(); doc->undo().undo(); return true;
         case cmdRedo: pluginManager->commitPendingChanges(); doc->undo().redo(); return true;
         case cmdPlayStop: togglePlayForSection(); return true;
@@ -787,8 +794,8 @@ bool MainComponent::perform (const InvocationInfo& info)
         case cmdRecord: session->toggleRecord(); return true;
         case cmdLoop: transport->toggleLoop(); return true;
         case cmdPunch: transport->togglePunch(); return true;
-        case cmdAddTrack: showSection (0); studioPage->showArrange(); studioPage->arrange.addTrack(); return true;
-        case cmdImport: showSection (0); studioPage->showArrange(); studioPage->arrange.importAudioDialog(); return true;
+        case cmdAddTrack: showSection (0); studioPage->arrange.addTrack(); return true;
+        case cmdImport: showSection (0); studioPage->arrange.importAudioDialog(); return true;
         case cmdExport: ExportDialog::show (this, *doc, *session, host, settings); return true;
         case cmdSplit: studioPage->arrange.splitAtPlayhead(); return true;
         case cmdDuplicate: studioPage->arrange.duplicateSelection(); return true;
@@ -867,6 +874,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             m.addCommandItem (cm, cmdSave);
             m.addCommandItem (cm, cmdSaveAs);
             m.addCommandItem (cm, cmdReveal);
+            m.addCommandItem (cm, cmdProject);
             m.addSeparator();
             m.addCommandItem (cm, cmdExport);
 #if ! JUCE_MAC

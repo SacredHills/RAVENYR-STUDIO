@@ -28,6 +28,7 @@ AmpRig::AmpRig (juce::dsp::ConvolutionMessageQueue* queue)
 {
     for (int p = 0; p < numParams; ++p) params[(size_t) p].store (info (p).def);
     retiredModels.prepare (32);
+    retiredIrs.prepare (32);
     using C = juce::dsp::Convolution;
     convolution = queue != nullptr ? std::make_unique<C> (C::Latency { 0 }, *queue) : std::make_unique<C>();
     convolution2 = queue != nullptr ? std::make_unique<C> (C::Latency { 0 }, *queue) : std::make_unique<C>();
@@ -36,6 +37,8 @@ AmpRig::AmpRig (juce::dsp::ConvolutionMessageQueue* queue)
 AmpRig::~AmpRig()
 {
     delete pendingModel.exchange (nullptr);
+    delete pendingIr1.exchange (nullptr);
+    delete pendingIr2.exchange (nullptr);
     delete model;
     collectGarbage();
 }
@@ -61,20 +64,45 @@ void AmpRig::clearModel()
 
 void AmpRig::setImpulseResponse (juce::AudioBuffer<float>&& ir, double irRate)
 {
-    using C = juce::dsp::Convolution;
-    convolution->loadImpulseResponse (std::move (ir), irRate, C::Stereo::no, C::Trim::yes, C::Normalise::yes);
+    delete pendingIr1.exchange (new IrJob { std::move (ir), irRate });   // an older one never seen by the audio thread
     irActive = true;
 }
 
 void AmpRig::setImpulseResponse2 (juce::AudioBuffer<float>&& ir, double irRate)
 {
-    using C = juce::dsp::Convolution;
-    convolution2->loadImpulseResponse (std::move (ir), irRate, C::Stereo::no, C::Trim::yes, C::Normalise::yes);
+    delete pendingIr2.exchange (new IrJob { std::move (ir), irRate });
     irActive2 = true;
+}
+
+void AmpRig::clearImpulseResponse() noexcept
+{
+    irActive = false;
+    delete pendingIr1.exchange (nullptr);
+}
+
+void AmpRig::clearImpulseResponse2() noexcept
+{
+    irActive2 = false;
+    delete pendingIr2.exchange (nullptr);
+}
+
+void AmpRig::takeOverIrs() noexcept
+{
+    using C = juce::dsp::Convolution;
+    const auto deliver = [this] (std::atomic<IrJob*>& slot, C& conv) {
+        if (auto* j = slot.exchange (nullptr))
+        {
+            conv.loadImpulseResponse (std::move (j->buf), j->rate, C::Stereo::no, C::Trim::yes, C::Normalise::yes);
+            if (retiredIrs.push (&j, 1) == 0) {}   // FIFO full: leak rather than free here
+        }
+    };
+    deliver (pendingIr1, *convolution);
+    deliver (pendingIr2, *convolution2);
 }
 
 void AmpRig::finishLoadingOffline()
 {
+    takeOverIrs();   // offline nothing else is running: the loads go in from here
     if (maxBlock > 0)
         { convolution->prepare ({ sr, (juce::uint32) maxBlock, 1 }); convolution2->prepare ({ sr, (juce::uint32) maxBlock, 1 }); }   // installs the most recently loaded IRs synchronously
 }
@@ -85,6 +113,9 @@ void AmpRig::collectGarbage()
     int n;
     while ((n = retiredModels.pop (old, 16)) > 0)
         for (int i = 0; i < n; ++i) delete old[i];
+    IrJob* oldIrs[16];
+    while ((n = retiredIrs.pop (oldIrs, 16)) > 0)
+        for (int i = 0; i < n; ++i) delete oldIrs[i];
 }
 
 void AmpRig::takeOverModel() noexcept
@@ -197,6 +228,7 @@ void AmpRig::resetBlock (int b) noexcept
 void AmpRig::process (float* L, float* R, int n) noexcept
 {
     takeOverModel();
+    takeOverIrs();
     if (! isPreparedFor (sr) || maxBlock == 0) return;
     const auto t0 = juce::Time::getHighResolutionTicks();
     for (int done = 0; done < n;)

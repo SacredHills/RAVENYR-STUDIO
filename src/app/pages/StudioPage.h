@@ -31,28 +31,21 @@ private:
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override { refresh(); }
 };
 
-/** Studio section: the arrange window (tracks, clips, recording) and the project sheet. */
+/** Editor section: the arrange window (tracks, clips, recording). The project sheet opens from File > Project Info. */
 class StudioPage : public juce::Component
 {
 public:
     StudioPage (ProjectDocument& d, EngineHost& h, SessionController& s, juce::PropertiesFile& p)
         : arrange (d, h, s, p), sheet (d)
     {
-        tabs.setTabBarDepth (30);
-        tabs.setOutline (0);
-        tabs.addTab ("Arrange", palette::bg, &arrange, false);
-        tabs.addTab ("Project", palette::bg, &sheet, false);
-        addAndMakeVisible (tabs);
+        addAndMakeVisible (arrange);
     }
-    void resized() override { tabs.setBounds (getLocalBounds()); }
+    void resized() override { arrange.setBounds (getLocalBounds()); }
     void rebind() { arrange.rebind(); sheet.rebind(); }
     void refreshInfo() { sheet.refreshInfo(); }
-    void showArrange() { tabs.setCurrentTabIndex (0); }
+    void showArrange() {}
 
     ArrangeView arrange;
     ProjectSheet sheet;
-
-private:
-    juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
 };
 } // namespace ff

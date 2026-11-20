@@ -43,10 +43,10 @@ public:
     void clearModel();
     /** Mono IR at its own sample rate (resampled, trimmed and normalised by the convolution engine). */
     void setImpulseResponse (juce::AudioBuffer<float>&& ir, double irSampleRate);
-    void clearImpulseResponse() noexcept { irActive = false; }
+    void clearImpulseResponse() noexcept;
     /** A second cabinet, blended with the first by the cabBlend parameter (only heard while the first is loaded too). */
     void setImpulseResponse2 (juce::AudioBuffer<float>&& ir, double irSampleRate);
-    void clearImpulseResponse2() noexcept { irActive2 = false; }
+    void clearImpulseResponse2() noexcept;
     void collectGarbage();
     /** For offline rendering: finishes pending IR loads (call after setImpulseResponse, before processing). */
     void finishLoadingOffline();
@@ -85,6 +85,15 @@ private:
     NamModel* model = nullptr;
     SpscFifo<NamModel*> retiredModels;
     void takeOverModel() noexcept;
+
+    /** Impulse responses are handed to the convolution from the audio thread: JUCE's Convolution keeps its "send this
+        to the background loader" command in a plain member that loadImpulseResponse (any thread) and process (audio
+        thread) both write, so a load made while the rig is running can be lost, leaving a cabinet that is listed as
+        loaded but never applied. Here the message thread only leaves the buffer in a mailbox. */
+    struct IrJob { juce::AudioBuffer<float> buf; double rate = 0.0; };
+    std::atomic<IrJob*> pendingIr1 { nullptr }, pendingIr2 { nullptr };
+    SpscFifo<IrJob*> retiredIrs;
+    void takeOverIrs() noexcept;
 
     // block state
     std::array<bool, rig::numBlocks> wasOn {};

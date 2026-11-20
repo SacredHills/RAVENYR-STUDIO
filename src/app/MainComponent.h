@@ -57,7 +57,7 @@ public:
     void filesDropped (const juce::StringArray& files, int x, int y) override;
     enum Commands
     {
-        cmdNew = 0x2000, cmdOpen, cmdSave, cmdSaveAs, cmdReveal, cmdUndo, cmdRedo,
+        cmdNew = 0x2000, cmdOpen, cmdSave, cmdSaveAs, cmdReveal, cmdProject, cmdUndo, cmdRedo,
         cmdPlayStop, cmdReturnToZero, cmdBackToPlayStart, cmdToggleClick, cmdTapTempo, cmdPracticeMetronome,
         cmdShortcuts, cmdAbout, cmdTunerWindow, cmdMetronomeWindow, cmdPlugins,
         cmdRecord, cmdLoop, cmdPunch, cmdAddTrack, cmdImport, cmdExport, cmdSplit, cmdDuplicate, cmdCombineMidi, cmdDelete,
@@ -108,7 +108,7 @@ private:
     std::unique_ptr<StudioPage> studioPage;
     std::unique_ptr<TunerPanel> tunerPanel;
     std::unique_ptr<MetronomePanel> metronomePanel;
-    std::unique_ptr<ToolWindow> tunerWindow, metronomeWindow;
+    std::unique_ptr<ToolWindow> tunerWindow, metronomeWindow, projectWindow;
     struct RigWindow { std::unique_ptr<RigEditor> editor; std::unique_ptr<ToolWindow> window; };
     std::map<juce::String, RigWindow> rigWindows;   // by track id
     void openRigWindow (juce::ValueTree track);
@@ -117,6 +117,7 @@ private:
     std::unique_ptr<ToolWindow> t3kWindow;
     void openTone3000 (RigEditor&, bool cab);
     void openTuner();
+    void openProjectSheet();
     void openMetronome();
     std::unique_ptr<MixerPage> mixerPage;
     std::unique_ptr<SettingsPage> settingsPage;

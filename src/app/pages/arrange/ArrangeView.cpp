@@ -2341,7 +2341,9 @@ ArrangeView::ArrangeView (ProjectDocument& d, EngineHost& h, SessionController& 
                            "drag points, double-click one to type its value, right-click one to remove it. Pick the lane at the left of each track.");
     autoButton.onClick = [this] {
         if (automationMode() && sliceMode()) setSliceMode (false);
+        masterShown = automationMode();   // the master bus's automation lane comes with the track lanes
         for (auto* h : headers) h->refreshAutomation();
+        resized();
         repaintAll();
     };
     tempoButton.setClickingTogglesState (true);
@@ -2372,18 +2374,9 @@ ArrangeView::ArrangeView (ProjectDocument& d, EngineHost& h, SessionController& 
     };
     addAndMakeVisible (allMute);
     addAndMakeVisible (allSolo);
-    masterButton.setClickingTogglesState (true);
-    masterButton.setTooltip ("Master: show the main output's automation lane under the tracks: its volume (a fade-out, say) and the "
-                             "parameters of the plugins on the master bus. Double-click to add a point, drag to move it. Plays and exports.");
-    masterButton.onClick = [this] {
-        masterShown = masterButton.getToggleState();
-        doc.set (doc.transport(), juce::Identifier ("masterLane"), masterShown, false);
-        resized();
-        repaintAll();
-    };
     addChildComponent (masterLane);
     addChildComponent (masterHeader);
-    for (auto* b : { &followButton, &sliceButton, &autoButton, &tempoButton, &masterButton })
+    for (auto* b : { &followButton, &sliceButton, &autoButton, &tempoButton })
     {
         b->setWantsKeyboardFocus (false);
         addAndMakeVisible (b);
@@ -2412,8 +2405,9 @@ ArrangeView::ArrangeView (ProjectDocument& d, EngineHost& h, SessionController& 
     mixerButton.setClickingTogglesState (true);
     mixerButton.setColour (juce::TextButton::buttonOnColourId, palette::accent);
     mixerButton.setTooltip ("Pop the mixer up under the tracks: faders, pan, mute / solo and plugins");
-    mixerButton.onClick = [this] { setMixerShown (mixerButton.getToggleState()); };
+    mixerButton.onClick = [this] { setMixerShown (mixerButton.getToggleState()); settings.setValue ("editorMixerShown", mixerButton.getToggleState()); };
     addAndMakeVisible (mixerButton);
+    if (settings.getBoolValue ("editorMixerShown", false)) setMixerShown (true);   // reopens the way it was left
     dockClose.setTooltip ("Close the MIDI editor");
     dockClose.onClick = [this] { closeMidiEditor(); };
     session.selectionChanged.addChangeListener (this);
@@ -2456,12 +2450,6 @@ void ArrangeView::syncGeometry()
     {
         tempoTrackShown = shown;
         tempoButton.setToggleState (shown, juce::dontSendNotification);
-        resized();
-    }
-    if (const bool shown = (bool) doc.transport()["masterLane"]; shown != masterShown)
-    {
-        masterShown = shown;
-        masterButton.setToggleState (shown, juce::dontSendNotification);
         resized();
     }
     geo.tsNum = doc.tsNum();
@@ -2752,8 +2740,6 @@ void ArrangeView::resized()
     followButton.setBounds (tb.removeFromLeft (70));
     tb.removeFromLeft (6);
     tempoButton.setBounds (tb.removeFromLeft (104));
-    tb.removeFromLeft (6);
-    masterButton.setBounds (tb.removeFromLeft (70));
     tb.removeFromLeft (6);
     mixerButton.setBounds (tb.removeFromLeft (70));
     {

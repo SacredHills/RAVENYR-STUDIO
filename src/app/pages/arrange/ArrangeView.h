@@ -369,7 +369,7 @@ private:
     juce::ScrollBar hScroll { false }, vScroll { true };
     ContextButton addTrackButton { "+ Track" };
     juce::TextButton importButton { "Import" }, zoomInButton { "+" }, zoomOutButton { "-" },
-        fitButton { "Fit" }, followButton { "Follow" }, sliceButton { "Slice" }, autoButton { "Automation" }, tempoButton { "Tempo Track" }, masterButton { "Master" };
+        fitButton { "Fit" }, followButton { "Follow" }, sliceButton { "Slice" }, autoButton { "Automation" }, tempoButton { "Tempo Track" };
     juce::TextButton mixerButton { "Mixer" };   // pops the mixer up under the tracks
     std::unique_ptr<MiniMixer> miniMixer;
     struct MixerBar : juce::Component
