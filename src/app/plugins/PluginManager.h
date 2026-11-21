@@ -48,7 +48,7 @@ public:
     static constexpr int builtinMenuBase = 9000;
     static constexpr int instrumentMenu = -100;   // pass as firstId to list instruments instead of effects
     /** Menu of RAVENYR's own effects, then the known plugins (by manufacturer). */
-    void addToMenu (juce::PopupMenu& menu, int firstId) const;
+    void addToMenu (juce::PopupMenu& menu, int firstId, bool forRigSlot = false) const;   // forRigSlot: the Effects & Amps tab has its own NAM, so the NAM Amp plugin is left out
     /** The scanned plugins for a menu, one entry per distinct plugin (the same plugin installed twice is listed
         once). `display` has names made distinct where different plugins share one; originals[i] is what to load. */
     void menuTypes (bool instruments, juce::Array<juce::PluginDescription>& display, juce::Array<juce::PluginDescription>& originals) const;

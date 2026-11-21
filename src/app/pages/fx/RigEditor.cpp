@@ -858,7 +858,7 @@ void RigEditor::showAddPluginMenu (int slot)
         m.addItem (-3, "Paste plugin: " + plugins->clipboard.name);
         m.addSeparator();
     }
-    plugins->addToMenu (m, 1);
+    plugins->addToMenu (m, 1, true);
     m.addSeparator();
     m.addItem (-2, "Scan for plugins / manage...");
     juce::Component::SafePointer<RigEditor> safe (this);

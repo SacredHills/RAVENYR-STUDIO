@@ -628,14 +628,14 @@ void PluginManager::menuTypes (bool instruments, juce::Array<juce::PluginDescrip
     }
 }
 
-void PluginManager::addToMenu (juce::PopupMenu& menu, int firstId) const
+void PluginManager::addToMenu (juce::PopupMenu& menu, int firstId, bool forRigSlot) const
 {
     const bool instruments = firstId == instrumentMenu;
     menu.addSectionHeader ("RAVENYR");
     int i = 0;
     for (auto& b : fx::builtin::all())
     {
-        if (b.instrument == instruments) menu.addItem (builtinMenuBase + i, b.name);
+        if (b.instrument == instruments && ! (forRigSlot && juce::String (b.id) == "fretforge:nam")) menu.addItem (builtinMenuBase + i, b.name);
         ++i;
     }
     juce::Array<juce::PluginDescription> list, originals;
