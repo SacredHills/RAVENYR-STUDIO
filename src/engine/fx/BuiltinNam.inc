@@ -252,9 +252,9 @@ private:
 // ---------------------------------------------------------------------------------------------------  the amp head
 namespace ampui
 {
-// black tolex, black faceplate with white lettering, red jewel lights: a high-gain head
-const juce::Colour tolex { 0xff0b0b0b }, plateHi { 0xff1d1d1d }, plateLo { 0xff0a0a0a }, ink { 0xfff0f0f0 }, inkDim { 0xff9c9c9c },
-    amber { 0xffff3b30 }, lcdBg { 0xff0e0404 }, trim { 0xffd6d6d6 }, stripe { 0xffc8102e };
+// black tolex, gunmetal-grey faceplate with white lettering, silver jewel lights: a high-gain head
+const juce::Colour tolex { 0xff0b0b0b }, plateHi { 0xff3a3a3c }, plateLo { 0xff1e1e20 }, ink { 0xfff2f2f2 }, inkDim { 0xffb0b0b0 },
+    amber { 0xffe9edf2 }, lcdBg { 0xff0b0c0e }, trim { 0xffd6d6d6 }, stripe { 0xff9a9ca0 };
 
 class Lnf final : public juce::LookAndFeel_V4
 {
@@ -327,7 +327,7 @@ public:
         const float cx = r.getCentreX();
         const bool on = getToggleState();
         // LED
-        g.setColour (on ? amber : juce::Colour (0xff3c1512));
+        g.setColour (on ? amber : juce::Colour (0xff2c2d30));
         g.fillEllipse (cx - 4.0f, r.getY() + 3.0f, 8.0f, 8.0f);
         if (on) { g.setColour (amber.withAlpha (0.3f)); g.fillEllipse (cx - 8.0f, r.getY() - 1.0f, 16.0f, 16.0f); }
         g.setColour (juce::Colours::black.withAlpha (0.7f));
@@ -357,7 +357,7 @@ public:
         auto r = getLocalBounds().toFloat().reduced (0.5f);
         g.setColour (lcdBg);
         g.fillRoundedRectangle (r, 3.0f);
-        g.setColour (juce::Colour (0xff4a1612));
+        g.setColour (juce::Colour (0xff484a4e));
         g.drawRoundedRectangle (r, 3.0f, 1.2f);
         g.setColour (isErr ? juce::Colour (0xffff6a5a) : isDim ? amber.withAlpha (0.45f) : amber);
         g.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain)));
@@ -405,7 +405,7 @@ public:
             }
         }
         amp.addChangeListener (this);
-        setSize (880, 468);
+        setSize (880, 484);
         refresh();
         startTimerHz (4);
     }
@@ -432,14 +432,14 @@ public:
         const int bigW = (plate.getWidth() - 24) / 8;
         for (size_t i = 0; i < bigKnobs.size(); ++i)
         {
-            auto cell = juce::Rectangle<int> (plate.getX() + 12 + (int) i * bigW, plate.getY() + 50, bigW, bigCell + 20);
+            auto cell = juce::Rectangle<int> (plate.getX() + 12 + (int) i * bigW, plate.getY() + 66, bigW, bigCell + 20);
             place (*bigKnobs[i], cell, 66);
         }
         // small controls, one row
         const int sw = (plate.getWidth() - 24) / (int) smallItems.size();
         for (size_t i = 0; i < smallItems.size(); ++i)
         {
-            auto cell = juce::Rectangle<int> (plate.getX() + 12 + (int) i * sw, plate.getY() + 172, sw, 84);
+            auto cell = juce::Rectangle<int> (plate.getX() + 12 + (int) i * sw, plate.getY() + 188, sw, 84);
             auto& it = *smallItems[i];
             if (it.sw != nullptr)
             {
@@ -477,8 +477,8 @@ private:
     };
     struct Row { juce::Label title; ampui::Lcd lcd; juce::TextButton load, browse, clear; };
 
-    juce::Rectangle<int> facePlate() const { return { 16, 16, getWidth() - 32, 274 }; }
-    juce::Rectangle<int> grillePanel() const { return { 16, 302, getWidth() - 32, getHeight() - 318 }; }
+    juce::Rectangle<int> facePlate() const { return { 16, 16, getWidth() - 32, 290 }; }
+    juce::Rectangle<int> grillePanel() const { return { 16, 318, getWidth() - 32, getHeight() - 334 }; }
 
     void styleLabel (juce::Label& l, float size, bool bold, juce::Colour c)
     {
@@ -572,23 +572,26 @@ private:
         // badge and title
         g.setColour (ampui::ink);
         g.setFont (juce::Font (juce::FontOptions (28.0f, juce::Font::bold)));
-        g.drawText ("RAVENYR", (int) f.getX() + 26, (int) f.getY() + 6, 240, 34, juce::Justification::centredLeft);
+        if (const auto logo = brandLogo(); logo.isValid())
+            g.drawImage (logo, juce::Rectangle<float> (f.getX() + 22.0f, f.getY() + 3.0f, 158.0f, 54.0f), juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid);
+        else
+            g.drawText ("RAVENYR", (int) f.getX() + 26, (int) f.getY() + 14, 240, 34, juce::Justification::centredLeft);
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
-        g.drawText ("NAM  AMP  +  CABINET", (int) f.getRight() - 330, (int) f.getY() + 10, 290, 24, juce::Justification::centredRight);
+        g.drawText ("NAM  AMP  +  CABINET", (int) f.getRight() - 330, (int) f.getY() + 18, 290, 24, juce::Justification::centredRight);
         g.setColour (ampui::stripe);
-        g.fillRect (f.getX() + 20.0f, f.getY() + 43.0f, f.getWidth() - 40.0f, 3.0f);
+        g.fillRect (f.getX() + 20.0f, f.getY() + 59.0f, f.getWidth() - 40.0f, 2.0f);
         g.setColour (ampui::amber.withAlpha (0.35f));
-        g.fillEllipse (f.getRight() - 26.0f, f.getY() + 12.0f, 18.0f, 18.0f);
+        g.fillEllipse (f.getRight() - 26.0f, f.getY() + 20.0f, 18.0f, 18.0f);
         g.setColour (ampui::amber);
-        g.fillEllipse (f.getRight() - 22.0f, f.getY() + 16.0f, 10.0f, 10.0f);
+        g.fillEllipse (f.getRight() - 22.0f, f.getY() + 24.0f, 10.0f, 10.0f);
         g.setColour (juce::Colours::white.withAlpha (0.7f));
-        g.fillEllipse (f.getRight() - 20.0f, f.getY() + 18.0f, 3.0f, 3.0f);
+        g.fillEllipse (f.getRight() - 20.0f, f.getY() + 26.0f, 3.0f, 3.0f);
 
         // sections of the lower row
         auto bracket = [&] (int first, int last, const char* text) {
             const int sw = (facePlate().getWidth() - 24) / (int) smallItems.size();
             const float x0 = (float) (facePlate().getX() + 12 + first * sw + 6), x1 = (float) (facePlate().getX() + 12 + (last + 1) * sw - 6);
-            const float y = (float) facePlate().getY() + 262.0f;
+            const float y = (float) facePlate().getY() + 278.0f;
             g.setColour (ampui::ink.withAlpha (0.55f));
             g.drawHorizontalLine ((int) y, x0, x1);
             g.drawVerticalLine ((int) x0, y - 4.0f, y);
@@ -597,13 +600,13 @@ private:
             g.setColour (ampui::ink);
             const auto label = juce::String (text);
             const int tw = (int) juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), label) + 14;
-            g.setColour (juce::Colour (0xff111111));
+            g.setColour (juce::Colour (0xff27272a));
             g.fillRect ((int) ((x0 + x1) * 0.5f) - tw / 2, (int) y - 6, tw, 12);
             g.setColour (ampui::ink);
             g.drawText (label, (int) ((x0 + x1) * 0.5f) - tw / 2, (int) y - 6, tw, 12, juce::Justification::centred);
         };
         g.setColour (ampui::ink.withAlpha (0.25f));
-        g.drawHorizontalLine (facePlate().getY() + 160, f.getX() + 20.0f, f.getRight() - 20.0f);
+        g.drawHorizontalLine (facePlate().getY() + 176, f.getX() + 20.0f, f.getRight() - 20.0f);
         bracket (0, 1, "GATE");
         bracket (2, 5, "CAPTURE");
         bracket (6, 10, "CABINET");

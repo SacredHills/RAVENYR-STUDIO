@@ -49,6 +49,10 @@ std::unique_ptr<juce::Component> createRackPanel (juce::AudioPluginInstance&,
 
 /** The NAM Amp's "TONE3000..." button: set by the app, which opens its browser and calls `load` with each downloaded
     file (isIr: a cabinet; otherwise a NAM capture). Empty: the button is hidden. */
+/** The picture on the NAM Amp's faceplate (set by the app; without one the name is written). */
+void setBrandLogo (const juce::Image&);
+juce::Image brandLogo();
+
 using Tone3000Browser = std::function<void (bool cab, std::function<void (const juce::File&, bool isIr)> load)>;
 Tone3000Browser& tone3000Browser();
 

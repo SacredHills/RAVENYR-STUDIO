@@ -1918,6 +1918,14 @@ const std::vector<Preset>& factoryPresets (const juce::String& id)
     return id == "fretforge:eq" ? eq : none;
 }
 
+juce::Image& brandLogoRef()
+{
+    static juce::Image img;
+    return img;
+}
+void setBrandLogo (const juce::Image& logo) { brandLogoRef() = logo; }
+juce::Image brandLogo() { return brandLogoRef(); }
+
 Tone3000Browser& tone3000Browser()
 {
     static Tone3000Browser b;

@@ -696,6 +696,8 @@ struct AmpRigTests : juce::UnitTest
 
                 if (const auto snap = juce::SystemStats::getEnvironmentVariable ("FF_SNAPSHOT", {}); snap.isNotEmpty())
                 {
+                    if (const auto logoPath = juce::SystemStats::getEnvironmentVariable ("FF_LOGO", {}); logoPath.isNotEmpty())
+                        fx::builtin::setBrandLogo (juce::ImageFileFormat::loadFrom (juce::File (logoPath)));
                     std::unique_ptr<juce::AudioProcessorEditor> ed (b->createEditorIfNeeded());
                     ed->setBounds (0, 0, ed->getWidth(), ed->getHeight());
                     auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 1.5f);

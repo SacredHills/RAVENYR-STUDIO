@@ -104,6 +104,7 @@ MainComponent::MainComponent (juce::PropertiesFile& s) : settings (s)
     trainingPage = std::make_unique<TrainingPage> (host, *doc, settings);
     effectsPage = std::make_unique<RigEditor> (*doc, host, *session, settings);
     t3kClient = std::make_unique<t3k::Client> (settings);
+    fx::builtin::setBrandLogo (logoImage());
     fx::builtin::tone3000Browser() = [this] (bool cab, std::function<void (const juce::File&, bool)> load) { openTone3000 (cab, "the NAM Amp plugin", std::move (load)); };
     effectsPage->setTone3000Handler ([this, ed = juce::Component::SafePointer<RigEditor> (effectsPage.get())] (bool cab) {
         if (ed != nullptr) openTone3000 (*ed, cab);
