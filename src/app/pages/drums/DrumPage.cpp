@@ -32,7 +32,10 @@ const std::pair<int, const char*> grids[] = { { 2, "1/8" }, { 3, "1/8 triplets" 
 
 // ================================================================== grid
 
-DrumGrid::DrumGrid (ProjectDocument& d, EngineHost& h) : doc (d), host (h) {}
+DrumGrid::DrumGrid (ProjectDocument& d, EngineHost& h) : doc (d), host (h)
+{
+    setWantsKeyboardFocus (true);   // without it the grid never receives Delete, Select All, arrows or Escape
+}
 
 void DrumGrid::setPattern (juce::ValueTree p)
 {
@@ -297,8 +300,10 @@ bool DrumGrid::keyPressed (const juce::KeyPress& k)
     if (k == juce::KeyPress::deleteKey || k == juce::KeyPress::backspaceKey)
     {
         doc.undo().beginNewTransaction ("Delete drum hits");
-        for (auto& h : selected) if (h.getParent() == pat) pat.removeChild (h, &doc.undo());
+        const auto doomed = selected;   // removing hits can notify listeners, so never walk the live selection
         selected.clear();
+        selKeys.clear();
+        for (auto h : doomed) if (h.getParent() == pat) pat.removeChild (h, &doc.undo());
         selKeys.clear();
         repaint();
         return true;

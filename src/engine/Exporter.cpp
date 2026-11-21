@@ -78,6 +78,12 @@ ExportResult exportAudio (const juce::ValueTree& tracks, const juce::File& media
         res.warnings.add (juce::String (graph->missingClips) + " clip(s) could not be loaded and are silent in the export.");
     res.warnings.addArray (rigWarnings);
 
+    if (progress && ! progress (0.0))   // cancelled while the plugins and audio were loading
+    {
+        res.result = juce::Result::fail ("Export cancelled.");
+        return res;
+    }
+
     const auto start = (juce::int64) std::llround (s.startSec * s.sampleRate);
     const auto total = (juce::int64) std::llround ((s.endSec - s.startSec) * s.sampleRate);
     if (total > (juce::int64) std::numeric_limits<int>::max())
@@ -207,6 +213,7 @@ ExportResult exportAudio (const juce::ValueTree& tracks, const juce::File& media
             const int n = (int) juce::jmin ((juce::int64) block, -pos);
             renderBlock (pos, n);
             pos += n;
+            if (progress && ! progress (0.0)) { res.result = juce::Result::fail ("Export cancelled."); return res; }
         }
 
         for (juce::int64 done = 0; done < total; done += block)

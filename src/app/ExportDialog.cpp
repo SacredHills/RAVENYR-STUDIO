@@ -11,7 +11,8 @@ namespace
     {
     public:
         ExportJob (juce::ValueTree t, juce::File media, AudioCache& c, ExportSettings s, std::function<void (ExportResult)> done)
-            : juce::ThreadWithProgressWindow ("Exporting audio...", true, true), tracks (t), mediaBundle (media), cache (c),
+            : juce::ThreadWithProgressWindow ("Exporting audio...", true, true, -1),   // -1: never kill the thread, wait for it to notice the cancel
+              tracks (t), mediaBundle (media), cache (c),
               settings (std::move (s)), onDone (std::move (done)) {}
 
         void run() override
