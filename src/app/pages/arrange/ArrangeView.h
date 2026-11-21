@@ -257,7 +257,7 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
-    void mouseUp (const juce::MouseEvent&) override { dragLane = {}; dragPoint = -1; repaint(); }
+    void mouseUp (const juce::MouseEvent&) override { dragLane = {}; dragPoint = -1; pending = false; repaint(); }
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent& e) override;
 private:
@@ -266,7 +266,14 @@ private:
     std::vector<automation::Point> dragPts;
     int dragPoint = -1;
     bool moved = false;
+    // like the track lanes: a new point needs a click-and-hold, a double-click puts one ON the line, and a point
+    // stays where it appeared until the mouse is dragged a few pixels
+    bool pending = false, suppressDrag = false, pendingAlt = false;
+    int pendingToken = 0;
+    static constexpr int holdMs = 350;
+    juce::Point<float> pendingPos;
     juce::Point<float> grabOffset;
+    void addPoint (juce::Point<float> pos, bool noSnap, bool onLine);
     juce::Rectangle<float> row() const { return getLocalBounds().toFloat().reduced (0.0f, 12.0f); }
     juce::Point<float> posOf (const juce::String& prm, const automation::Point& p) const;
     int pointAt (juce::Point<float> at, const std::vector<automation::Point>& pts, const juce::String& prm) const;

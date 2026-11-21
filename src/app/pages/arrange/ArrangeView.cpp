@@ -1178,6 +1178,7 @@ void TimelineCanvas::drawClip (juce::Graphics& g, const juce::ValueTree& clip, j
 {
     // Zoomed far in, a clip is many thousands of pixels wide. Shapes that big (rounded corners, outlines) draw
     // with glitches, so only the visible part (plus a margin) is drawn; notes and waveforms use real positions.
+    const auto full = r;   // where the clip really is: fades and their handles are positioned from it, not from the visible part
     r = r.withLeft (juce::jmax (r.getX(), -24.0f)).withRight (juce::jmin (r.getRight(), (float) getWidth() + 24.0f));
     if (r.getWidth() < 2.0f) return;
     const bool muted = (bool) clip[ids::muted];
@@ -1297,23 +1298,28 @@ void TimelineCanvas::drawClip (juce::Graphics& g, const juce::ValueTree& clip, j
     const float fiW = (float) (prop (clip, ids::fadeIn) * geo.pixelsPerSecond);
     const float foW = (float) (prop (clip, ids::fadeOut) * geo.pixelsPerSecond);
     g.setColour (juce::Colours::black.withAlpha (0.35f));
+    g.saveState();
+    g.reduceClipRegion (r.toNearestInt());   // the shapes keep their real size and position; only the visible part is drawn
     if (fiW > 1.0f)
     {
         juce::Path p;
-        p.addTriangle (r.getX(), r.getY() + 15.0f, r.getX() + fiW, r.getY() + 15.0f, r.getX(), r.getBottom());
+        p.addTriangle (full.getX(), r.getY() + 15.0f, full.getX() + fiW, r.getY() + 15.0f, full.getX(), r.getBottom());
         g.fillPath (p);
     }
     if (foW > 1.0f)
     {
         juce::Path p;
-        p.addTriangle (r.getRight(), r.getY() + 15.0f, r.getRight() - foW, r.getY() + 15.0f, r.getRight(), r.getBottom());
+        p.addTriangle (full.getRight(), r.getY() + 15.0f, full.getRight() - foW, r.getY() + 15.0f, full.getRight(), r.getBottom());
         g.fillPath (p);
     }
-    if (selected || r.getWidth() > 30.0f)
+    g.restoreState();
+    if (selected || full.getWidth() > 30.0f)
     {
         g.setColour (palette::text.withAlpha (0.8f));
-        g.fillRect (juce::Rectangle<float> (r.getX() + fiW - 3.0f, r.getY() + 1.0f, 6.0f, 6.0f));
-        g.fillRect (juce::Rectangle<float> (r.getRight() - foW - 3.0f, r.getY() + 1.0f, 6.0f, 6.0f));
+        const auto fiHandle = juce::Rectangle<float> (full.getX() + fiW - 3.0f, r.getY() + 1.0f, 6.0f, 6.0f);
+        const auto foHandle = juce::Rectangle<float> (full.getRight() - foW - 3.0f, r.getY() + 1.0f, 6.0f, 6.0f);
+        if (fiHandle.getRight() > r.getX() && fiHandle.getX() < r.getRight()) g.fillRect (fiHandle);
+        if (foHandle.getRight() > r.getX() && foHandle.getX() < r.getRight()) g.fillRect (foHandle);
     }
 
     outline();
@@ -2434,6 +2440,11 @@ void ArrangeView::rebind()
     selection.clear();
     syncGeometry();
     rebuildHeaders();
+    if (miniMixer != nullptr)   // a pop-up mixer left open belongs to the old project's tracks
+    {
+        setMixerShown (false);
+        setMixerShown (true);
+    }
 }
 
 void ArrangeView::deviceChanged()
@@ -2755,8 +2766,8 @@ void ArrangeView::resized()
 
     if (miniMixer != nullptr)
     {
-        mixerHeight = juce::jlimit (200, juce::jmax (200, getHeight() - 200), mixerHeight);
-        miniMixer->setBounds (r.removeFromBottom (mixerHeight));
+        // the saved height is only limited for showing: a view that is not sized yet must not shrink it for good
+        miniMixer->setBounds (r.removeFromBottom (juce::jlimit (200, juce::jmax (200, getHeight() - 200), mixerHeight)));
         mixerBar.setBounds (r.removeFromBottom (6));
     }
     if (dockedEditor != nullptr)
@@ -3066,7 +3077,23 @@ void MasterLane::mouseDown (const juce::MouseEvent& e)
         });
         return;
     }
-    if (hit < 0) return;
+    suppressDrag = false;
+    if (hit < 0)
+    {
+        // empty spot: the point appears once the button has been held for a moment
+        pending = true;
+        pendingPos = e.position;
+        pendingAlt = e.mods.isAltDown();
+        const int token = ++pendingToken;
+        juce::Component::SafePointer<MasterLane> safe (this);
+        juce::Timer::callAfterDelay (holdMs, [safe, token] {
+            if (safe == nullptr || ! safe->pending || safe->pendingToken != token) return;
+            safe->pending = false;
+            if (! juce::ModifierKeys::currentModifiers.isLeftButtonDown()) return;
+            safe->addPoint (safe->pendingPos, safe->pendingAlt, false);
+        });
+        return;
+    }
     owner.doc.undo().beginNewTransaction ("Move master automation point");
     dragLane = automation::lane (m, prm, true, &owner.doc.undo());
     dragPts = automation::pointsOf (dragLane);
@@ -3075,8 +3102,41 @@ void MasterLane::mouseDown (const juce::MouseEvent& e)
     repaint();
 }
 
+void MasterLane::addPoint (juce::Point<float> pos, bool noSnap, bool onLine)
+{
+    auto m = masterOf (owner);
+    if (! m.isValid()) return;
+    const auto prm = owner.laneParamFor (m);
+    const auto r = row();
+    owner.doc.undo().beginNewTransaction ("Add master automation point");
+    dragLane = automation::lane (m, prm, true, &owner.doc.undo());
+    auto pts = automation::pointsOf (dragLane);
+    automation::Point np;
+    np.time = owner.geo.snap (owner.geo.timeFor (pos.x), ! noSnap);
+    np.value = automation::fromNormal (prm, juce::jlimit (0.0f, 1.0f, (r.getBottom() - pos.y) / r.getHeight()));
+    if (onLine)   // a double-click: the point goes ON the line as it is now, so nothing moves until it is dragged
+        np.value = automation::valueAt (pts, np.time, automation::defaultValue (prm, m));
+    if (pts.empty() && np.time > 0.001) pts.push_back ({ 0.0, automation::defaultValue (prm, m) });   // hold the current value up to here
+    pts.push_back (np);
+    std::stable_sort (pts.begin(), pts.end(), [] (const automation::Point& a, const automation::Point& b) { return a.time < b.time; });
+    dragPoint = -1;
+    for (int k = 0; k < (int) pts.size(); ++k)
+        if (pts[(size_t) k].time == np.time && pts[(size_t) k].value == np.value) dragPoint = k;
+    automation::setPoints (dragLane, pts, &owner.doc.undo());
+    dragPts = automation::pointsOf (dragLane);
+    grabOffset = {};
+    moved = false;   // it stays where it appeared until the mouse is dragged a few pixels
+    repaint();
+}
+
 void MasterLane::mouseDrag (const juce::MouseEvent& e)
 {
+    if (pending)
+    {
+        if (e.getDistanceFromDragStart() > 4) pending = false;   // moved before the hold: no point
+        return;
+    }
+    if (suppressDrag) return;
     if (! dragLane.isValid() || ! juce::isPositiveAndBelow (dragPoint, (int) dragPts.size())) return;
     if (! moved && e.getDistanceFromDragStart() < 4) return;
     moved = true;
@@ -3095,6 +3155,9 @@ void MasterLane::mouseDrag (const juce::MouseEvent& e)
 
 void MasterLane::mouseDoubleClick (const juce::MouseEvent& e)
 {
+    suppressDrag = true;   // the second press of a double-click never drags a point
+    pending = false;
+    moved = false;
     auto m = masterOf (owner);
     if (! m.isValid()) return;
     const auto prm = owner.laneParamFor (m);
@@ -3103,20 +3166,9 @@ void MasterLane::mouseDoubleClick (const juce::MouseEvent& e)
     const int hit = pointAt (e.position, pts, prm);
     if (hit < 0)
     {
-        const auto r = row();
-        owner.doc.undo().beginNewTransaction ("Add master automation point");
-        auto lane = automation::lane (m, prm, true, &owner.doc.undo());
-        auto p2 = automation::pointsOf (lane);
-        automation::Point np;
-        np.time = owner.geo.snap (owner.geo.timeFor (e.position.x), ! e.mods.isAltDown());
-        np.value = automation::fromNormal (prm, juce::jlimit (0.0f, 1.0f, (r.getBottom() - e.position.y) / r.getHeight()));
-        if (p2.empty() && np.time > 0.001) p2.push_back ({ 0.0, automation::defaultValue (prm, m) });
-        p2.push_back (np);
-        std::stable_sort (p2.begin(), p2.end(), [] (const automation::Point& a, const automation::Point& b) { return a.time < b.time; });
-        automation::setPoints (lane, p2, &owner.doc.undo());
+        addPoint (e.position, e.mods.isAltDown(), true);
         dragLane = {};
         dragPoint = -1;
-        repaint();
         return;
     }
     auto* w = new juce::AlertWindow ("Master automation point", owner.laneLabel (m, prm) + " at " + juce::String (pts[(size_t) hit].time, 2)

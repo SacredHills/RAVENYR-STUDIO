@@ -7,14 +7,14 @@
 
 namespace namamp
 {
-constexpr int numFiles = 3;   // 0 = NAM capture, 1 = cabinet, 2 = second cabinet
-inline const char* fileProp (int k) { return k == 0 ? "namFile" : k == 1 ? "irFile" : "irFile2"; }
+constexpr int numFiles = 2;   // 0 = NAM capture, 1 = cabinet
+inline const char* fileProp (int k) { return k == 0 ? "namFile" : "irFile"; }
 
-const std::array<int, 19>& exposed()
+const std::array<int, 17>& exposed()
 {
     using namespace ff::rig;
-    static const std::array<int, 19> p { { inGain, gateOn, gateThresh, gateRelease, namNormalize, namCalibrate, calLevel, ampGain, ampLevel,
-                                           bass, mid, treble, presence, cabLowCut, cabHighCut, cabBlend, cabPhase1, cabPhase2, outGain } };
+    static const std::array<int, 17> p { { inGain, gateOn, gateThresh, gateRelease, namNormalize, namCalibrate, calLevel, ampGain, ampLevel,
+                                           bass, mid, treble, presence, cabLowCut, cabHighCut, cabPhase1, outGain } };
     return p;
 }
 
@@ -34,8 +34,7 @@ Layout makeLayout()
         if (p == ff::rig::ampLevel) label = "Amp level";
         if (p == ff::rig::cabLowCut) label = "Cab low cut";
         if (p == ff::rig::cabHighCut) label = "Cab high cut";
-        if (p == ff::rig::cabPhase1) label = "Cab 1 phase";
-        if (p == ff::rig::cabPhase2) label = "Cab 2 phase";
+        if (p == ff::rig::cabPhase1) label = "Cab phase";
         if (ff::rig::isToggle (p)) l.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { i.id, 1 }, label, i.def >= 0.5f));
         else l.add (param (i.id, label.toRawUTF8(), i.min, i.max, i.def, i.unit, i.centre));
     }
@@ -160,8 +159,7 @@ private:
             {
                 const juce::ScopedLock sl (installLock);
                 if (k == 0) { rig.clearModel(); setLatencySamples (0); }
-                else if (k == 1) rig.clearImpulseResponse();
-                else rig.clearImpulseResponse2();
+                else rig.clearImpulseResponse();
                 rig.collectGarbage();
                 sendChangeMessage();
                 continue;
@@ -220,15 +218,8 @@ private:
                 }
                 else { rig.clearModel(); setLatencySamples (0); }
             }
-            else if (r.ok)
-            {
-                if (r.kind == 1) rig.setImpulseResponse (std::move (r.ir), r.irRate);
-                else rig.setImpulseResponse2 (std::move (r.ir), r.irRate);
-            }
-            else
-            {
-                if (r.kind == 1) rig.clearImpulseResponse(); else rig.clearImpulseResponse2();
-            }
+            else if (r.ok) rig.setImpulseResponse (std::move (r.ir), r.irRate);
+            else rig.clearImpulseResponse();
         }
         rig.collectGarbage();
         if (! take.empty()) sendChangeMessage();
@@ -236,7 +227,7 @@ private:
 
     juce::dsp::ConvolutionMessageQueue queue { 64 };
     ff::fx::AmpRig rig;
-    std::array<juce::RangedAudioParameter*, 19> cached {};
+    std::array<juce::RangedAudioParameter*, 17> cached {};
     std::vector<float> rightScratch;
     std::atomic<double> rate { 48000.0 };
     std::atomic<int> maxBlock { 512 };
@@ -382,11 +373,11 @@ public:
         big (treble, "Treble");          big (presence, "Presence"); big (ampLevel, "Volume");  big (outGain, "Master");
         addSwitch (gateOn, "Gate on");   small (gateRelease, "Release");
         addSwitch (namNormalize, "Normalise"); addSwitch (namCalibrate, "Calibrate"); small (calLevel, "Interface"); small (ampGain, "No-capture gain");
-        small (cabLowCut, "Low cut");    small (cabHighCut, "High cut"); small (cabBlend, "Blend");
-        addSwitch (cabPhase1, "Cab 1 phase"); addSwitch (cabPhase2, "Cab 2 phase");
+        small (cabLowCut, "Low cut");    small (cabHighCut, "High cut");
+        addSwitch (cabPhase1, "Cab phase");
 
-        static const char* titles[3] = { "Amp capture", "Cabinet", "Cabinet 2" };
-        for (int k = 0; k < 3; ++k)
+        static const char* titles[2] = { "Amp capture", "Cabinet" };
+        for (int k = 0; k < 2; ++k)
         {
             auto& row = rows[(size_t) k];
             row.title.setText (juce::String (titles[k]).toUpperCase(), juce::dontSendNotification);
@@ -405,7 +396,7 @@ public:
             }
         }
         amp.addChangeListener (this);
-        setSize (880, 484);
+        setSize (880, 440);
         refresh();
         startTimerHz (4);
     }
@@ -450,7 +441,7 @@ public:
         }
         // slots
         auto grille = grillePanel().reduced (22, 18);
-        const int rowH = grille.getHeight() / 3;
+        const int rowH = grille.getHeight() / 2;
         for (auto& row : rows)
         {
             auto line = grille.removeFromTop (rowH).reduced (0, 4);
@@ -573,19 +564,19 @@ private:
         g.setColour (ampui::ink);
         g.setFont (juce::Font (juce::FontOptions (28.0f, juce::Font::bold)));
         if (const auto logo = brandLogo(); logo.isValid())
-            g.drawImage (logo, juce::Rectangle<float> (f.getX() + 22.0f, f.getY() + 3.0f, 158.0f, 54.0f), juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid);
+            g.drawImage (logo, juce::Rectangle<float> (f.getX(), f.getY() + 3.0f, f.getWidth(), 54.0f), juce::RectanglePlacement::centred);
         else
-            g.drawText ("RAVENYR", (int) f.getX() + 26, (int) f.getY() + 14, 240, 34, juce::Justification::centredLeft);
+            g.drawText ("RAVENYR", (int) f.getX(), (int) f.getY() + 14, (int) f.getWidth(), 34, juce::Justification::centred);
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
-        g.drawText ("NAM  AMP  +  CABINET", (int) f.getRight() - 330, (int) f.getY() + 18, 290, 24, juce::Justification::centredRight);
+        g.drawText ("NAM  AMP  +  CABINET", (int) f.getX() + 26, (int) f.getY() + 18, 290, 24, juce::Justification::centredLeft);
         g.setColour (ampui::stripe);
         g.fillRect (f.getX() + 20.0f, f.getY() + 59.0f, f.getWidth() - 40.0f, 2.0f);
         g.setColour (ampui::amber.withAlpha (0.35f));
-        g.fillEllipse (f.getRight() - 26.0f, f.getY() + 20.0f, 18.0f, 18.0f);
+        g.fillEllipse (f.getRight() - 30.0f, f.getY() + 20.0f, 18.0f, 18.0f);
         g.setColour (ampui::amber);
-        g.fillEllipse (f.getRight() - 22.0f, f.getY() + 24.0f, 10.0f, 10.0f);
+        g.fillEllipse (f.getRight() - 26.0f, f.getY() + 24.0f, 10.0f, 10.0f);
         g.setColour (juce::Colours::white.withAlpha (0.7f));
-        g.fillEllipse (f.getRight() - 20.0f, f.getY() + 26.0f, 3.0f, 3.0f);
+        g.fillEllipse (f.getRight() - 24.0f, f.getY() + 26.0f, 3.0f, 3.0f);
 
         // sections of the lower row
         auto bracket = [&] (int first, int last, const char* text) {
@@ -609,7 +600,7 @@ private:
         g.drawHorizontalLine (facePlate().getY() + 176, f.getX() + 20.0f, f.getRight() - 20.0f);
         bracket (0, 1, "GATE");
         bracket (2, 5, "CAPTURE");
-        bracket (6, 10, "CABINET");
+        bracket (6, 8, "CABINET");
 
         // grille cloth with gold piping
         const auto gr = grillePanel().toFloat();
@@ -636,11 +627,11 @@ private:
 
     void refresh()
     {
-        for (int k = 0; k < 3; ++k)
+        for (int k = 0; k < 2; ++k)
         {
             const auto s = amp.fileStatus (k);
             auto& r = rows[(size_t) k];
-            if (s.path.isEmpty()) r.lcd.set (k == 0 ? "-- built-in amp --" : k == 1 ? "-- built-in speaker --" : "--", false, true);
+            if (s.path.isEmpty()) r.lcd.set (k == 0 ? "-- built-in amp --" : "-- built-in speaker --", false, true);
             else if (s.error.isNotEmpty()) r.lcd.set (s.error, true, false);
             else r.lcd.set (s.name + (s.loading ? "  ..." : ""), false, s.loading);
             r.clear.setEnabled (s.path.isNotEmpty());
@@ -667,14 +658,14 @@ private:
         if (! tone3000Browser()) return;
         juce::WeakReference<NamAmp> target (&amp);
         tone3000Browser() (k != 0, [target, k] (const juce::File& f, bool isIr) {
-            if (target != nullptr) target->setFile (isIr ? (k == 0 ? 1 : k) : 0, f);   // an IR from the amp row goes to the first cabinet
+            if (target != nullptr) target->setFile (isIr ? 1 : 0, f);   // an IR from the amp row goes to the cabinet
         });
     }
 
     NamAmp& amp;
     ampui::Lnf lnf;
     std::vector<std::unique_ptr<Item>> bigKnobs, smallItems;
-    std::array<Row, 3> rows;
+    std::array<Row, 2> rows;
     std::shared_ptr<juce::FileChooser> chooser;
     juce::Image cache;
 };
