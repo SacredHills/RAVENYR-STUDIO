@@ -338,11 +338,6 @@ void SessionController::showAddInsertMenu (juce::ValueTree track, juce::Componen
         return;
     }
     juce::PopupMenu m;
-    if (isAudioTrack (track) && ! trackHasRig (track))   // the amp is a plugin like the others (it always runs first)
-    {
-        m.addItem (-4, "NAM Amp (Neural Amp Modeler)");
-        m.addSeparator();
-    }
     if (! plugins->clipboard.empty() && plugins->clipboard.descXml.isNotEmpty())
     {
         m.addItem (-3, "Paste plugin: " + plugins->clipboard.name);
@@ -355,7 +350,6 @@ void SessionController::showAddInsertMenu (juce::ValueTree track, juce::Componen
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target).withMousePosition(), [this, track, safeTarget] (int r) {
         if (r == 0) return;
         if (r == -2) { plugins->showManager(); return; }
-        if (r == -4) { addTrackRig (track); return; }
         if (r == -3)
         {
             const auto c = plugins->clipboard;
