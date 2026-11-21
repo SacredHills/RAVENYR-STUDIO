@@ -39,6 +39,23 @@ public:
 static void hideAllWindowsNow (juce::Component* main)
 {
     FloatAboveApp::shuttingDown = true;
+   #if JUCE_WINDOWS
+    // Windows animates a window that is hidden or closed (a fade / shrink); on a large or maximised window that reads as
+    // the whole screen flashing. The animation is switched off for every window before it goes.
+    {
+        static juce::DynamicLibrary dwm ("dwmapi.dll");
+        using SetAttr = long (__stdcall*) (void*, unsigned long, const void*, unsigned long);
+        if (auto setAttr = reinterpret_cast<SetAttr> (dwm.getFunction ("DwmSetWindowAttribute")))
+            for (int i = juce::Desktop::getInstance().getNumComponents(); --i >= 0;)
+                if (auto* c = juce::Desktop::getInstance().getComponent (i))
+                    if (auto* peer = c->getPeer())
+                        if (auto* hwnd = peer->getNativeHandle())
+                        {
+                            const int disable = 1;   // DWMWA_TRANSITIONS_FORCEDISABLED
+                            setAttr (hwnd, 3, &disable, sizeof (disable));
+                        }
+    }
+   #endif
     for (int i = juce::Desktop::getInstance().getNumComponents(); --i >= 0;)
         if (auto* c = juce::Desktop::getInstance().getComponent (i))
             if (c != main) c->setVisible (false);
