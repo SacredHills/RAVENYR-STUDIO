@@ -773,7 +773,13 @@ bool MainComponent::perform (const InvocationInfo& info)
 {
     switch (info.commandID)
     {
-        case cmdNew:  withChangesHandled ([this] { host.engine.stop(); doc->newUntitled(); showSection (0); }); return true;
+        case cmdNew:  withChangesHandled ([this] {
+            host.engine.stop();
+            loadingOverlay.begin ("Starting a new project...");   // up and painted before the old project's plugins are shut down
+            doc->newUntitled();
+            showSection (0);
+        });
+        return true;
         case cmdOpen: withChangesHandled ([this] { openProjectDialog(); }); return true;
         case cmdSave: saveThen (nullptr); return true;
         case cmdSaveAs: saveAsThen (nullptr); return true;

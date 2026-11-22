@@ -16,6 +16,7 @@ public:
     InsertList (SessionController& s, juce::ValueTree t) : session (s), track (t) {}
     int rowsWanted() const;
     static constexpr int rowHeight = 20;
+    static constexpr int visibleRows = 4;   // the plugin area of a strip is this tall whatever the plugin count (more scroll)
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
@@ -106,6 +107,7 @@ public:
     RouteList (SessionController& s, ProjectDocument& d, juce::ValueTree t) : session (s), doc (d), track (t) {}
     int rowsWanted() const;
     static constexpr int rowHeight = 20;
+    static constexpr int visibleRows = 4;   // the plugin area of a strip is this tall whatever the plugin count (more scroll)
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;

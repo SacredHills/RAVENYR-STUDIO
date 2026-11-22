@@ -355,7 +355,7 @@ void SessionController::showAddInsertMenu (juce::ValueTree track, juce::Componen
             const auto c = plugins->clipboard;
             doc.undo().beginNewTransaction ("Paste plugin " + c.name);
             const int at = rig::addInsert (track, c.descXml, c.name, &doc.undo(), c.state);
-            if (at >= 0 && ff::fx::builtin::hasRackPanelForDescription (c.descXml) && onBuiltInInsertAdded) onBuiltInInsertAdded (track, at);
+            if (at >= 0) showNewInsert (track, at, c.descXml);
             return;
         }
         juce::String name;
@@ -364,9 +364,16 @@ void SessionController::showAddInsertMenu (juce::ValueTree track, juce::Componen
         doc.undo().beginNewTransaction ("Add plugin " + name);
         const int slot = rig::addInsert (track, desc, name, &doc.undo());
         if (slot < 0) return;
-        if (ff::fx::builtin::hasRackPanelForDescription (desc)) { if (onBuiltInInsertAdded) onBuiltInInsertAdded (track, slot); }   // expands in the rack
-        else openInsertWhenLoaded (track, slot, 40);   // its window opens once it has loaded
+        showNewInsert (track, slot, desc);
     });
+}
+
+void SessionController::showNewInsert (juce::ValueTree track, int slot, const juce::String& descXml)
+{
+    // a built-in plugin expands in the Mixer page's rack when that is on screen; everything else (and a built-in added where there is
+    // no rack) opens its own window once it has loaded
+    if (ff::fx::builtin::hasRackPanelForDescription (descXml) && onBuiltInInsertAdded && onBuiltInInsertAdded (track, slot)) return;
+    openInsertWhenLoaded (track, slot, 40);
 }
 
 void SessionController::openInsertWhenLoaded (juce::ValueTree track, int slot, int triesLeft)
@@ -812,22 +819,33 @@ void SessionController::setOutput (juce::ValueTree track, const juce::String& bu
 void SessionController::showRoutingMenu (juce::ValueTree track, juce::Component* target)
 {
     auto tracks = doc.tracks();
+    // with several tracks selected (and this one among them) every choice applies to all of them
+    juce::Array<juce::ValueTree> group;
+    if (selectedTracks.size() > 1 && selectedTracks.contains (track))
+        for (auto& t : selectedTracks)
+            if (t.hasType (ids::TRACK) && ! isFolder (t)) group.add (t);
+    if (group.isEmpty()) group.add (track);
+    const bool many = group.size() > 1;
+    const auto sendsTo = [] (const juce::ValueTree& t, const juce::String& id) {
+        for (auto c : t) if (c.hasType (ids::SEND) && c[ids::target].toString() == id) return true;
+        return false;
+    };
+    const auto allSendTo = [&] (const juce::String& id) { for (auto& t : group) if (! sendsTo (t, id)) return false; return true; };
     juce::PopupMenu out, sends;
     out.addItem (1, "Master", true, outputOf (track).isEmpty() || (! timeline::isHardwareRoute (outputOf (track)) && ! timeline::findTrack (tracks, outputOf (track)).isValid()));
     int i = 0;
     juce::Array<juce::ValueTree> targets;
     for (auto t : tracks)
     {
-        if (t.hasType (ids::TRACK) && ! isFolder (t) && t != track && (! isSourceTrack (t) || isInstrumentTrack (t)))
+        if (t.hasType (ids::TRACK) && ! isFolder (t) && ! group.contains (t) && (! isSourceTrack (t) || isInstrumentTrack (t)))
         {
             targets.add (t);
             const bool instr = isInstrumentTrack (t);   // an instrument takes sends into its audio input (not an output)
-            const bool ok = canRouteTo (tracks, track, t, instr);
+            bool ok = true;
+            for (auto& g : group) ok = ok && canRouteTo (tracks, g, t, instr);
             if (! instr)
                 out.addItem (100 + i, t[ids::name].toString() + (kindOf (t) == TrackKind::fx ? "  (FX)" : ""), ok, outputOf (track) == t[ids::id].toString());
-            bool hasSend = false;
-            for (auto c : track) hasSend = hasSend || (c.hasType (ids::SEND) && c[ids::target].toString() == t[ids::id].toString());
-            sends.addItem (300 + i, "Send to " + t[ids::name].toString() + (instr ? "  (instrument input)" : ""), ok && ! hasSend);
+            sends.addItem (300 + i, "Send to " + t[ids::name].toString() + (instr ? "  (instrument input)" : ""), ok && ! allSendTo (t[ids::id].toString()));
             ++i;
         }
     }
@@ -841,9 +859,7 @@ void SessionController::showRoutingMenu (juce::ValueTree track, juce::Component*
         {
             const auto id = timeline::hardwareRoute (hw[k].first);
             out.addItem (700 + k, hw[k].second, true, outputOf (track) == id);
-            bool hasSend = false;
-            for (auto c : track) hasSend = hasSend || (c.hasType (ids::SEND) && c[ids::target].toString() == id);
-            sends.addItem (800 + k, "Send to " + hw[k].second, ! hasSend);
+            sends.addItem (800 + k, "Send to " + hw[k].second, ! allSendTo (id));
         }
     }
     else
@@ -851,11 +867,11 @@ void SessionController::showRoutingMenu (juce::ValueTree track, juce::Component*
         out.addItem (-1, "(Interface outputs: the audio device has only 2 outputs switched on)", false);
     }
     out.addSeparator();
-    out.addItem (2, "New bus for this track");
+    out.addItem (2, many ? "New bus for these " + juce::String (group.size()) + " tracks" : juce::String ("New bus for this track"));
     sends.addSeparator();
-    sends.addItem (3, "New FX track with a send from this track");
+    sends.addItem (3, many ? "New FX track with a send from these " + juce::String (group.size()) + " tracks" : juce::String ("New FX track with a send from this track"));
     juce::PopupMenu m;
-    m.addSectionHeader (track[ids::name].toString() + "  ->  " + outputName (track));
+    m.addSectionHeader (many ? juce::String (group.size()) + " selected tracks" : track[ids::name].toString() + "  ->  " + outputName (track));
     m.addSubMenu ("Output", out);
     m.addSubMenu ("Add send", sends);
     int sendCount = 0;
@@ -874,32 +890,43 @@ void SessionController::showRoutingMenu (juce::ValueTree track, juce::Component*
             }
     }
     juce::Component::SafePointer<juce::Component> safe (target);
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target).withMousePosition(), [this, track, targets, safe, hw] (int r) {
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target).withMousePosition(), [this, track, group, targets, safe, hw] (int r) {
         if (r == 0) return;
         auto tracks2 = doc.tracks();
-        if (r >= 700 && r < 800 && r - 700 < hw.size()) { setOutput (track, timeline::hardwareRoute (hw[r - 700].first)); return; }
-        if (r >= 800 && r < 900 && r - 800 < hw.size())
-        {
+        const auto outputAll = [this, group] (const juce::String& busId) {
+            doc.undo().beginNewTransaction (group.size() > 1 ? "Tracks output" : "Track output");
+            const auto bus = timeline::findTrack (doc.tracks(), busId);
+            for (auto t : group)
+            {
+                if (busId.isNotEmpty() && ! timeline::isHardwareRoute (busId) && ! canRouteTo (doc.tracks(), t, bus)) continue;   // the menu greys these out
+                t.setProperty (ids::output, busId, &doc.undo());
+            }
+        };
+        const auto sendAll = [this, group] (const juce::String& id, double db) {
             doc.undo().beginNewTransaction ("Add send");
-            addSend (juce::ValueTree (track), timeline::hardwareRoute (hw[r - 800].first), 0.0, false, &doc.undo());
-            return;
-        }
-        if (r == 1) setOutput (track, {});
-        else if (r >= 100 && r < 300) setOutput (track, targets[r - 100][ids::id].toString());
-        else if (r >= 300 && r < 500)
-        {
-            doc.undo().beginNewTransaction ("Add send");
-            addSend (juce::ValueTree (track), targets[r - 300][ids::id].toString(), -6.0, false, &doc.undo());
-        }
+            for (auto t : group)
+            {
+                bool has = false;
+                for (auto c : t) has = has || (c.hasType (ids::SEND) && c[ids::target].toString() == id);
+                if (! has) addSend (t, id, db, false, &doc.undo());
+            }
+        };
+        if (r >= 700 && r < 800 && r - 700 < hw.size()) { outputAll (timeline::hardwareRoute (hw[r - 700].first)); return; }
+        if (r >= 800 && r < 900 && r - 800 < hw.size()) { sendAll (timeline::hardwareRoute (hw[r - 800].first), 0.0); return; }
+        if (r == 1) outputAll ({});
+        else if (r >= 100 && r < 300) outputAll (targets[r - 100][ids::id].toString());
+        else if (r >= 300 && r < 500) sendAll (targets[r - 300][ids::id].toString(), -6.0);
         else if (r == 2 || r == 3)
         {
             const auto kind = r == 2 ? TrackKind::bus : TrackKind::fx;
             auto bus = addTrack ({}, -1, kind);
             if (! bus.isValid()) return;
-            auto t = track;
-            if (kind == TrackKind::bus) t.setProperty (ids::output, bus[ids::id], &doc.undo());
-            else addSend (t, bus[ids::id].toString(), -6.0, false, &doc.undo());
-            setSelectedTracks ({ track });
+            for (auto t : group)
+            {
+                if (kind == TrackKind::bus) t.setProperty (ids::output, bus[ids::id], &doc.undo());
+                else addSend (t, bus[ids::id].toString(), -6.0, false, &doc.undo());
+            }
+            setSelectedTracks (group);
         }
         else if (r >= 500 && r < 700)
         {
