@@ -23,7 +23,7 @@ juce::String eqId (int band, const char* what) { return "b" + juce::String (band
 /** One band's settings. All floats (choices as their index) so a whole set compares with memcmp. */
 struct EqBand
 {
-    float on = 0, type = 0, freq = 1000, gain = 0, q = 1, slope = 1, dyn = 0, range = -6, thr = -24, use = 0, atk = 10, rel = 120;   // use: the band exists (on: not bypassed)
+    float on = 0, type = 0, freq = 1000, gain = 0, q = 1, slope = 1, dyn = 0, range = -6, thr = -24, use = 0, atk = 10, rel = 120, arel = 0;   // arel: release follows the signal; use: the band exists (on: not bypassed)
     int typeI() const { return juce::roundToInt (type); }
     int dynI() const { return juce::roundToInt (dyn); }
     bool isUsed() const { return use > 0.5f; }
@@ -170,7 +170,7 @@ struct EqSpectral
             float bw = 0.0f;
             for (int b = 0; b < eqBandCount; ++b)
                 if (weights[(size_t) (b * bins + k)] > bw) { bw = weights[(size_t) (b * bins + k)]; best = b; }
-            const float a = best >= 0 ? s.b[(size_t) best].atk : 10.0f, r = best >= 0 ? s.b[(size_t) best].rel : 120.0f;
+            const float a = best >= 0 ? s.b[(size_t) best].atk : 10.0f, r = best >= 0 ? (s.b[(size_t) best].arel > 0.5f ? 80.0f : s.b[(size_t) best].rel) : 120.0f;   // auto: a medium release
             binAtk[(size_t) k] = 1.0f - std::exp (-frameSec / juce::jmax (0.0005f, a * 0.001f));
             binRel[(size_t) k] = 1.0f - std::exp (-frameSec / juce::jmax (0.005f, r * 0.001f));
         }
@@ -251,8 +251,8 @@ public:
     {
         for (int b = 0; b < eqBandCount; ++b)
         {
-            const char* what[] { "on", "type", "freq", "gain", "q", "slope", "dyn", "range", "thr", "use", "atk", "rel" };
-            for (int k = 0; k < 12; ++k) bandParams[(size_t) b][(size_t) k] = state.getParameter (eqId (b, what[k]));
+            const char* what[] { "on", "type", "freq", "gain", "q", "slope", "dyn", "range", "thr", "use", "atk", "rel", "arel" };
+            for (int k = 0; k < 13; ++k) bandParams[(size_t) b][(size_t) k] = state.getParameter (eqId (b, what[k]));
             bandParams[(size_t) b][6]->addListener (this);
             bandParams[(size_t) b][1]->addListener (this);
             bandParams[(size_t) b][0]->addListener (this);
@@ -316,6 +316,8 @@ public:
             l.add (std::make_unique<juce::AudioParameterFloat> (juce::ParameterID { eqId (b, "rel"), 1 }, name + "release", rr, 120.0f,
                                                                 juce::AudioParameterFloatAttributes().withLabel ("ms").withStringFromValueFunction (ms)));
         }
+        for (int b = 0; b < eqBandCount; ++b)   // added after the timing parameters (automation goes by index)
+            l.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { eqId (b, "arel"), 1 }, "Band " + juce::String (b + 1) + " auto release", false));
         return l;
     }
 
@@ -328,7 +330,7 @@ public:
             auto& p = bandParams[(size_t) b];
             auto& x = s.b[(size_t) b];
             x.on = value (p[0]); x.type = value (p[1]); x.freq = value (p[2]); x.gain = value (p[3]); x.q = value (p[4]);
-            x.slope = value (p[5]); x.dyn = value (p[6]); x.range = value (p[7]); x.thr = value (p[8]); x.use = value (p[9]); x.atk = value (p[10]); x.rel = value (p[11]);
+            x.slope = value (p[5]); x.dyn = value (p[6]); x.range = value (p[7]); x.thr = value (p[8]); x.use = value (p[9]); x.atk = value (p[10]); x.rel = value (p[11]); x.arel = value (p[12]);
         }
         s.attack = value (attackP);
         s.release = value (releaseP);
@@ -439,12 +441,22 @@ public:
                 float e = envelopes[(size_t) b];
                 const float atk = std::exp (-1.0f / (float) (juce::jmax (0.0005f, band.atk * 0.001f) * sr));
                 const float rel = std::exp (-1.0f / (float) (juce::jmax (0.005f, band.rel * 0.001f) * sr));
+                // auto release: a small dip in the level (the ripple inside a sustained note) lets go slowly, so the gain does not
+                // pump; a deep drop (the gap between two chugs) lets go quickly, so the next hit is not held down
+                const bool autoRel = band.arel > 0.5f;
+                const float relSlow = std::exp (-1.0f / (float) (0.25 * sr)), relFast = std::exp (-1.0f / (float) (0.025 * sr));
                 for (int i = 0; i < len; ++i)
                 {
                     const float x = R != nullptr ? 0.5f * (L[off + i] + R[off + i]) : L[off + i];
                     const float y = det.process (x);
                     const float p2 = y * y * 2.0f;   // a sine's peak level
-                    e = p2 > e ? atk * e + (1.0f - atk) * p2 : rel * e + (1.0f - rel) * p2;
+                    float rc = rel;
+                    if (autoRel)
+                    {
+                        const float drop = juce::jlimit (0.0f, 1.0f, (0.5f - p2 / (e + 1.0e-12f)) * (1.0f / 0.375f));   // 0: within 3 dB of the envelope, 1: 9 dB or more below
+                        rc = relSlow + (relFast - relSlow) * drop;
+                    }
+                    e = p2 > e ? atk * e + (1.0f - atk) * p2 : rc * e + (1.0f - rc) * p2;
                 }
                 envelopes[(size_t) b] = e;
                 const float delta = eqDynamicDelta (10.0f * std::log10 (e + 1.0e-12f) - band.thr, band.range);
@@ -520,7 +532,7 @@ public:
     std::atomic<int> listenBand { -1 };   // band being listened to (the editor's Listen button / Alt-drag), -1: none
 
 private:
-    std::array<std::array<juce::RangedAudioParameter*, 12>, eqBandCount> bandParams {};
+    std::array<std::array<juce::RangedAudioParameter*, 13>, eqBandCount> bandParams {};
     juce::RangedAudioParameter *attackP = nullptr, *releaseP = nullptr, *outP = nullptr;
     std::array<std::array<EqBandFilter, eqBandCount>, 2> filters;
     std::array<Biquad, eqBandCount> detectors;
@@ -1084,6 +1096,8 @@ public:
         knobs[4].slider.setTooltip ("How far the dynamics can move the gain: negative turns loud parts down, positive turns them up");
         knobs[5].slider.setTooltip ("How fast the dynamics react when the level rises (this band)");
         knobs[6].slider.setTooltip ("How fast the dynamics let go when the level falls (this band)");
+        autoRelButton.setTooltip ("The release follows the playing: slow within a sustained note (no pumping), fast in the gaps between chugs. The Release knob is not used.");
+        addChildComponent (autoRelButton);
         attachGlobal (7, eq.state.getParameter ("out"));
         setResizable (true, true);
         setResizeLimits (760, 520, 2400, 1400);
@@ -1154,6 +1168,8 @@ public:
         dynCol.removeFromTop (18);
         dynLabelArea = dynCol.removeFromTop (16);
         dynBox.setBounds (dynCol.removeFromTop (26));
+        dynCol.removeFromTop (4);
+        autoRelButton.setBounds (dynCol.removeFromTop (22));
         for (int k = 3; k < 7; ++k) placeKnob (k, bp.removeFromLeft (w));
         placeKnob (7, globalPanel.reduced (8, 8));
     }
@@ -1169,6 +1185,8 @@ private:
     EqGraph graph;
     juce::Label title, hint, bandLabel;
     juce::ComboBox typeBox, slopeBox, dynBox;
+    juce::ToggleButton autoRelButton { "Auto release" };
+    std::unique_ptr<juce::ButtonParameterAttachment> autoRelAttach;
     juce::TextButton onButton { "On" }, removeButton { "Remove" }, listenButton { "Listen" };
     void syncListen()
     {
@@ -1197,6 +1215,7 @@ private:
         typeAttach.reset();
         slopeAttach.reset();
         dynAttach.reset();
+        autoRelAttach.reset();
         onAttach.reset();
         for (int k = 0; k < 7; ++k) knobs[(size_t) k].attach.reset();
         const bool has = b >= 0;
@@ -1204,6 +1223,7 @@ private:
                                     (juce::Component*) &dynBox, (juce::Component*) &onButton, (juce::Component*) &removeButton,
                                     (juce::Component*) &listenButton })
             c->setVisible (has);
+        autoRelButton.setVisible (has);
         for (int k = 0; k < 7; ++k) { knobs[(size_t) k].slider.setVisible (has); knobs[(size_t) k].label.setVisible (has); }
         if (has)
         {
@@ -1213,6 +1233,7 @@ private:
             typeAttach = std::make_unique<juce::ComboBoxParameterAttachment> (*eq.bandParam (b, 1), typeBox);
             slopeAttach = std::make_unique<juce::ComboBoxParameterAttachment> (*eq.bandParam (b, 5), slopeBox);
             dynAttach = std::make_unique<juce::ComboBoxParameterAttachment> (*eq.bandParam (b, 6), dynBox);
+            autoRelAttach = std::make_unique<juce::ButtonParameterAttachment> (*eq.bandParam (b, 12), autoRelButton);
             const int map[7] { 2, 3, 4, 8, 7, 10, 11 };
             for (int k = 0; k < 7; ++k)
             {
@@ -1236,6 +1257,10 @@ private:
         knobs[1].label.setEnabled (eqHasGain (t));
         const bool dyn = band.dynamic() || band.spectral();
         for (int k = 3; k < 7; ++k) { knobs[(size_t) k].slider.setEnabled (dyn); knobs[(size_t) k].label.setEnabled (dyn); }
+        const bool manualRel = dyn && band.arel < 0.5f;
+        knobs[6].slider.setEnabled (manualRel);
+        knobs[6].label.setEnabled (manualRel);
+        autoRelButton.setEnabled (dyn);
         dynBox.setEnabled (! eqIsCut (t));
     }
     void timerCallback() { refreshEnablement(); syncListen(); }

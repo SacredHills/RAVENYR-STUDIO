@@ -1057,6 +1057,36 @@ struct PluginSlotTests : juce::UnitTest
             expect (fx::makeOfflineInserts (empty, 48000.0, 512, w) == nullptr);
         }
 
+        beginTest ("EQ: Metal Chug Control preset, and auto release lets go faster between hits");
+        {
+            auto eqA = fx::builtin::create ("fretforge:eq");
+            const fx::builtin::Preset* chug = nullptr;
+            for (auto& p : fx::builtin::factoryPresets ("fretforge:eq")) if (p.name == "Metal Chug Control") chug = &p;
+            expect (chug != nullptr, "the preset exists");
+            if (chug != nullptr)
+            {
+                expect (fx::builtin::applyPreset (*eqA, *chug));
+                const auto get = [&] (const char* id) { 
+                                                        for (auto* q : eqA->getParameters())
+                                                            if (auto* w = dynamic_cast<juce::RangedAudioParameter*> (q); w != nullptr && w->paramID == id)
+                                                                return w->convertFrom0to1 (w->getValue());
+                                                        return -999.0f; };
+                expectWithinAbsoluteError (get ("b1freq"), 90.0f, 0.5f);
+                expectWithinAbsoluteError (get ("b4freq"), 10000.0f, 5.0f);
+                expect (get ("b2arel") > 0.5f, "auto release is on for the dynamic band");
+
+                if (const auto snap = juce::SystemStats::getEnvironmentVariable ("FF_EQ_SNAPSHOT", {}); snap.isNotEmpty())
+                {
+                    std::unique_ptr<juce::AudioProcessorEditor> ed (eqA->createEditorIfNeeded());
+                    ed->setBounds (0, 0, ed->getWidth(), ed->getHeight());
+                    auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 1.2f);
+                    juce::File (snap).deleteFile();
+                    juce::FileOutputStream os { juce::File (snap) };
+                    juce::PNGImageFormat().writeImageToStream (img, os);
+                }
+            }
+        }
+
         beginTest ("offline rig without a plugin host reports the plugin");
         {
             auto r = rg::makeDefault();
