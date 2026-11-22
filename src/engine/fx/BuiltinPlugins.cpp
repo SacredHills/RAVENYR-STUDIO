@@ -1902,10 +1902,10 @@ const std::vector<Preset>& factoryPresets (const juce::String& id)
         eqPreset ("Vocals", "Warm & smooth", { { 3, 80.0f, 0.0f, 0.7071f, 1 }, { 1, 200.0f, 1.5f, 0.7071f }, { 0, 3500.0f, 0.0f, 0.8f, 1, 2, -40.0f, -5.0f } }),
         eqPreset ("Guitar", "Tame harshness (spectral)", { { 3, 80.0f, 0.0f, 0.7071f, 1 }, { 0, 3000.0f, 0.0f, 0.7f, 1, 2, -40.0f, -6.0f } }),
         eqPreset ("Guitar", "Remove mud", { { 3, 90.0f, 0.0f, 0.7071f, 3 }, { 0, 250.0f, -3.5f, 1.4f }, { 0, 1800.0f, 1.5f, 1.0f } }),
-        // Low-mid "woof" of palm-muted chugs (the 150-250 Hz chug zone): a dynamic cut that only acts while the chug builds up, a small
-        // static cut for the boxy area above it, and the cleanup cuts. Built from general metal-guitar EQ practice (no published Sneap settings).
-        eqPreset ("Guitar", "Metal Chug Control", { { 3, 90.0f, 0.0f, 0.7071f, 3 }, { 0, 190.0f, 0.0f, 1.3f, 1, 1, -30.0f, -6.0f, 8.0f, 120.0f, 1.0f },
-                                                    { 0, 380.0f, -2.0f, 1.0f }, { 4, 10000.0f, 0.0f, 0.7071f, 3 } }),
+        // Low-mid "woof" of palm-muted chugs (the 150-250 Hz chug zone): the cleanup cuts, and a dynamic cut that only acts while the chug
+        // builds up, so open playing keeps its weight. Auto release lets go slowly inside a note and quickly in the gaps between hits.
+        eqPreset ("Guitar", "Metal Chug Control", { { 3, 90.0f, 0.0f, 0.7071f, 3 }, { 0, 190.0f, 0.0f, 1.0955f, 1, 1, -20.1393f, -6.0f, 8.0f, 120.0f, 1.0f },
+                                                    { 4, 10000.0f, 0.0f, 0.7071f, 3 } }),
         eqPreset ("Guitar", "Fizz cut (high gain)", { { 3, 90.0f, 0.0f, 0.7071f, 3 }, { 4, 9000.0f, 0.0f, 0.7071f, 3 }, { 0, 5500.0f, -3.0f, 2.0f } }),
         eqPreset ("Guitar", "Acoustic sparkle", { { 3, 70.0f, 0.0f, 0.7071f, 1 }, { 0, 220.0f, -2.5f, 1.2f }, { 2, 8000.0f, 3.0f, 0.7071f } }),
         eqPreset ("Bass", "Tight low end", { { 3, 35.0f, 0.0f, 0.7071f, 3 }, { 0, 80.0f, 2.0f, 1.0f }, { 0, 250.0f, -3.0f, 1.5f }, { 1, 120.0f, 0.0f, 0.7071f, 1, 1, -20.0f, -4.0f } }),

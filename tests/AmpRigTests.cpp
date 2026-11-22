@@ -1072,7 +1072,7 @@ struct PluginSlotTests : juce::UnitTest
                                                                 return w->convertFrom0to1 (w->getValue());
                                                         return -999.0f; };
                 expectWithinAbsoluteError (get ("b1freq"), 90.0f, 0.5f);
-                expectWithinAbsoluteError (get ("b4freq"), 10000.0f, 5.0f);
+                expectWithinAbsoluteError (get ("b3freq"), 10000.0f, 5.0f);
                 expect (get ("b2arel") > 0.5f, "auto release is on for the dynamic band");
 
                 if (const auto snap = juce::SystemStats::getEnvironmentVariable ("FF_EQ_SNAPSHOT", {}); snap.isNotEmpty())
