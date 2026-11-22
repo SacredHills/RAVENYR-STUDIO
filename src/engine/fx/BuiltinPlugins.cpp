@@ -1903,8 +1903,8 @@ const std::vector<Preset>& factoryPresets (const juce::String& id)
         eqPreset ("Guitar", "Tame harshness (spectral)", { { 3, 80.0f, 0.0f, 0.7071f, 1 }, { 0, 3000.0f, 0.0f, 0.7f, 1, 2, -40.0f, -6.0f } }),
         eqPreset ("Guitar", "Remove mud", { { 3, 90.0f, 0.0f, 0.7071f, 3 }, { 0, 250.0f, -3.5f, 1.4f }, { 0, 1800.0f, 1.5f, 1.0f } }),
         // Low-mid "woof" of palm-muted chugs (the 150-250 Hz chug zone): the cleanup cuts, and a dynamic cut that only acts while the chug
-        // builds up, so open playing keeps its weight. Auto release lets go slowly inside a note and quickly in the gaps between hits.
-        eqPreset ("Guitar", "Metal Chug Control", { { 3, 90.0f, 0.0f, 0.7071f, 3 }, { 0, 190.0f, 0.0f, 1.0955f, 1, 1, -20.1393f, -6.0f, 8.0f, 120.0f, 1.0f },
+        // builds up, so open playing keeps its weight. A short release (25 ms) lets go between hits; Auto release is an alternative.
+        eqPreset ("Guitar", "Metal Chug Control", { { 3, 90.0f, 0.0f, 0.7071f, 3 }, { 0, 190.0f, 0.0f, 0.8f, 1, 1, -23.0f, -5.5f, 15.0f, 25.0f },
                                                     { 4, 10000.0f, 0.0f, 0.7071f, 3 } }),
         eqPreset ("Guitar", "Fizz cut (high gain)", { { 3, 90.0f, 0.0f, 0.7071f, 3 }, { 4, 9000.0f, 0.0f, 0.7071f, 3 }, { 0, 5500.0f, -3.0f, 2.0f } }),
         eqPreset ("Guitar", "Acoustic sparkle", { { 3, 70.0f, 0.0f, 0.7071f, 1 }, { 0, 220.0f, -2.5f, 1.2f }, { 2, 8000.0f, 3.0f, 0.7071f } }),
