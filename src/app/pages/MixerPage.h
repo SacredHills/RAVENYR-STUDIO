@@ -151,7 +151,7 @@ public:
     void setShowInserts (bool b) { showInserts = b; if (b) addAndMakeVisible (insertView); else removeChildComponent (&insertView); resized(); }
     /** The Mixer page's strips have a Drive (saturation) knob with a meter above it; the pop-up mixer does not. */
     void setShowDrive (bool b) { showDrive = b; drive.setVisible (b); resized(); }
-    static constexpr int driveHeight = 76;   // meter, knob and the PAN label under it
+    static constexpr int driveHeight = 62;   // the VU meter (48) and the knobs' labels (14); the knobs follow
     int dropSide = 0;   // -1 / +1: a dragged track will land before / after this strip
     int alignTop = 0;   // set by the mixer: the lowest fader top of all strips
 
@@ -172,7 +172,8 @@ private:
     } selectOnTouch { session, track };
     ScrollSafeSlider fader, pan, drive;
     float driveLevel = 0.0f;   // how much the Drive changes the level (dB, 0 or negative), smoothed for the meter
-    juce::Rectangle<int> driveMeterArea() const { return { 14, 44 + 2, getWidth() - 28, 10 }; }
+    juce::Rectangle<int> driveMeterArea() const { return { 14, 44 + 2, getWidth() - 28, 44 }; }
+    juce::Rectangle<int> driveLabelArea, panLabelArea;
     juce::TextButton mute { "M" }, solo { "S" }, arm { "R" };
     ContextButton ampButton { "NAM AMP" };   // instrument tracks: the instrument (right-click: change / remove)
     MonitorButton mon;

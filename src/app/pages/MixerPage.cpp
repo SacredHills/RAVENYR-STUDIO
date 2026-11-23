@@ -813,15 +813,13 @@ void ChannelStrip::paint (juce::Graphics& g)
     drawLevelMeter (g, meterArea(), level, hold, clipTicks > 0, true);
     g.setColour (palette::textDim);
     g.setFont (uiFont (10.0f));
-    const int padY = showDrive ? driveHeight : 0;
-    g.drawText ("PAN", getLocalBounds().withTrimmedTop (30 + padY).withHeight (14), juce::Justification::centred);
     if (showDrive)
     {
-        drawDriveMeter (g, driveMeterArea(), driveLevel);
-        g.setColour (palette::textDim);
-        g.setFont (uiFont (10.0f));
-        g.drawText ("DRIVE", getLocalBounds().withTrimmedTop (44 + 14 + 14).withHeight (12).withTrimmedLeft (8).withWidth (40), juce::Justification::centredLeft);
+        drawVuMeter (g, driveMeterArea(), driveLevel);
+        g.drawText ("DRIVE", driveLabelArea, juce::Justification::centred);
+        g.drawText ("PAN", panLabelArea, juce::Justification::centred);
     }
+    else g.drawText ("PAN", getLocalBounds().withTrimmedTop (30).withHeight (14), juce::Justification::centred);
     if (const auto grp = track[ids::group].toString(); grp.isNotEmpty())
     {
         const auto gc = SessionController::groupColour (grp);
@@ -843,13 +841,18 @@ void ChannelStrip::paint (juce::Graphics& g)
 void ChannelStrip::resized()
 {
     auto r = getLocalBounds().reduced (8, 0).withTrimmedTop (44);
-    if (showDrive)
+    if (showDrive)   // the VU meter, then DRIVE and PAN side by side, each with its name over it
     {
-        auto d = r.removeFromTop (driveHeight);
-        d.removeFromTop (14);   // the meter
-        drive.setBounds (d.withSizeKeepingCentre (40, 40));
+        r.removeFromTop (driveHeight - 14);
+        r.removeFromTop (14);
+        auto row = r.removeFromTop (40);
+        auto left = row.removeFromLeft (row.getWidth() / 2);
+        drive.setBounds (left.withSizeKeepingCentre (40, 40));
+        pan.setBounds (row.withSizeKeepingCentre (40, 40));
+        driveLabelArea = drive.getBounds().withY (drive.getY() - 14).withHeight (14).expanded (10, 0);
+        panLabelArea = pan.getBounds().withY (pan.getY() - 14).withHeight (14).expanded (10, 0);
     }
-    pan.setBounds (r.removeFromTop (40).withSizeKeepingCentre (40, 40));
+    else pan.setBounds (r.removeFromTop (40).withSizeKeepingCentre (40, 40));
     r.removeFromTop (6);
     auto buttons = r.removeFromTop (24);
     const int w = buttons.getWidth() / (isSourceTrack (track) ? 4 : 2);
@@ -1200,10 +1203,10 @@ void MixerPage::paint (juce::Graphics& g)
 {
     g.fillAll (palette::bg);
     drawSectionPanel (g, masterBox, "Main out");
-    drawDriveMeter (g, masterDriveMeter, masterDriveLevel);
+    drawVuMeter (g, masterDriveMeter, masterDriveLevel);
     g.setColour (palette::textDim);
     g.setFont (uiFont (10.0f));
-    g.drawText ("DRIVE", masterDrive.getX() - 46, masterDrive.getY() + 14, 44, 12, juce::Justification::centredRight);
+    g.drawText ("DRIVE", masterDrive.getBounds().withY (masterDrive.getY() - 14).withHeight (14).expanded (10, 0), juce::Justification::centred);
     g.setFont (uiFont (10.0f));
     for (int db : { 6, 0, -6, -12, -18, -24, -36, -60 })   // at the fader's own positions
     {
@@ -1256,8 +1259,9 @@ void MixerPage::resized()
         s.removeFromTop (8);
     }
     {
-        auto d = s.removeFromTop (ChannelStrip::driveHeight);
-        masterDriveMeter = d.removeFromTop (14).withTrimmedTop (2).withHeight (10);
+        auto d = s.removeFromTop (ChannelStrip::driveHeight + 40);
+        masterDriveMeter = d.removeFromTop (44).withTrimmedTop (2).reduced (14, 0);
+        d.removeFromTop (16);
         masterDrive.setBounds (d.withSizeKeepingCentre (40, 40));
         s.removeFromTop (6);
     }

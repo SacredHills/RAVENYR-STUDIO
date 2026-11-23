@@ -250,22 +250,58 @@ inline void drawLevelMeter (juce::Graphics& g, juce::Rectangle<int> r, float lev
     }
 }
 
-/** The Drive meter above a strip's Drive knob: a row of segments that light from the left as the saturation takes more off the
-    level (0 to -12 dB), amber turning to red. Unlit when the Drive is off. */
-inline void drawDriveMeter (juce::Graphics& g, juce::Rectangle<int> r, float reductionDb)
+/** The Drive meter above a strip's Drive knob: an analogue VU dial. The needle rests at the left and swings right as the
+    saturation takes more off the level (0 to -12 dB); the scale is cream with a red zone at the end. */
+inline void drawVuMeter (juce::Graphics& g, juce::Rectangle<int> r, float reductionDb)
 {
-    g.setColour (palette::well);
-    g.fillRoundedRectangle (r.toFloat(), 2.0f);
-    constexpr int segs = 12;
-    const float segW = (float) (r.getWidth() - 2) / (float) segs;
-    const int lit = juce::jlimit (0, segs, (int) std::ceil (juce::jlimit (0.0f, 12.0f, -reductionDb) * (float) segs / 12.0f - 0.01f));
-    for (int i = 0; i < segs; ++i)
+    const auto face = r.toFloat();
+    g.setColour (juce::Colour (0xff0b0b0b));
+    g.fillRoundedRectangle (face.expanded (1.5f), 4.0f);
+    juce::ColourGradient grad (juce::Colour (0xffe6dfc0), face.getCentreX(), face.getY(), juce::Colour (0xffb8ae86), face.getCentreX(), face.getBottom(), false);
+    g.setGradientFill (grad);
+    g.fillRoundedRectangle (face, 3.0f);
+
+    juce::Graphics::ScopedSaveState state (g);
+    g.reduceClipRegion (r);
+    const float cx = face.getCentreX(), pivotY = face.getBottom() + face.getHeight() * 0.62f;
+    const float radius = pivotY - face.getY() - 6.0f;
+    const float a0 = juce::degreesToRadians (-52.0f), a1 = juce::degreesToRadians (52.0f);
+    const auto point = [&] (float ang, float rad) { return juce::Point<float> (cx + rad * std::sin (ang), pivotY - rad * std::cos (ang)); };
+    const auto ink = juce::Colour (0xff2b261a);
+    const auto red = juce::Colour (0xffb0301f);
+    // the scale arc, its red end, then the ticks
+    for (int pass = 0; pass < 2; ++pass)
     {
-        const float t = (float) i / (float) (segs - 1);
-        const auto on = palette::warn.interpolatedWith (palette::bad, juce::jmax (0.0f, (t - 0.55f) / 0.45f));
-        g.setColour (i < lit ? on : palette::outline.withAlpha (0.35f));
-        g.fillRect ((float) r.getX() + 1.0f + segW * (float) i + 0.5f, (float) r.getY() + 2.0f, segW - 1.0f, (float) r.getHeight() - 4.0f);
+        juce::Path arc;
+        arc.addCentredArc (cx, pivotY, radius, radius, 0.0f, pass == 0 ? a0 : a0 + (a1 - a0) * 0.75f, pass == 0 ? a0 + (a1 - a0) * 0.75f : a1, true);
+        g.setColour (pass == 0 ? ink : red);
+        g.strokePath (arc, juce::PathStrokeType (pass == 0 ? 1.0f : 2.4f));
     }
+    g.setFont (uiFont (8.0f));
+    for (int db = 0; db <= 12; ++db)
+    {
+        const float ang = a0 + (a1 - a0) * (float) db / 12.0f;
+        const bool major = db % 3 == 0;
+        g.setColour (db >= 9 ? red : ink);
+        g.drawLine ({ point (ang, radius), point (ang, radius - (major ? 5.0f : 3.0f)) }, major ? 1.2f : 0.8f);
+        if (major)
+        {
+            const auto p = point (ang, radius - 12.0f);
+            g.drawText (juce::String (db), juce::Rectangle<float> (p.x - 8.0f, p.y - 5.0f, 16.0f, 10.0f), juce::Justification::centred);
+        }
+    }
+    g.setColour (ink.withAlpha (0.7f));
+    g.setFont (uiFont (8.0f).boldened());
+    g.drawText ("dB", juce::Rectangle<float> (face.getX() + 5.0f, face.getBottom() - 12.0f, 20.0f, 10.0f), juce::Justification::centredLeft);
+    // the needle
+    const float t = juce::jlimit (0.0f, 1.0f, -reductionDb / 12.0f);
+    const float ang = a0 + (a1 - a0) * t;
+    g.setColour (juce::Colours::black.withAlpha (0.25f));
+    g.drawLine ({ point (ang, 6.0f).translated (1.5f, 1.5f), point (ang, radius + 2.0f).translated (1.5f, 1.5f) }, 1.4f);   // its shadow
+    g.setColour (juce::Colour (0xff15110a));
+    g.drawLine ({ point (ang, 6.0f), point (ang, radius + 2.0f) }, 1.3f);
+    g.setColour (juce::Colour (0xff15110a));
+    g.fillEllipse (cx - 7.0f, face.getBottom() - 5.0f, 14.0f, 14.0f);   // the hub peeks over the bottom edge
 }
 
 /** Peak level of a LevelMeter with falling bar, peak hold and a clip LED that stays lit for 3 s after the last clip
