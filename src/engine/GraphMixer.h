@@ -21,6 +21,8 @@ public:
         virtual void post (int, const PlayTrack&, const float*, const float*, int) noexcept {}
         /** Timeline position (seconds) of this block for the master bus's automation; negative: not rolling (no automation). */
         virtual double masterTime() const noexcept { return -1.0; }
+        /** How much the Drive knob changed the level of this block, in dB (<= 0), for its meter; index -1 is the master. */
+        virtual void driveActivity (int, float) noexcept {}
     };
 
     void prepare (int maxBlock, double sampleRate);

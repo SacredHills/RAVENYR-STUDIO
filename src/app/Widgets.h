@@ -250,6 +250,24 @@ inline void drawLevelMeter (juce::Graphics& g, juce::Rectangle<int> r, float lev
     }
 }
 
+/** The Drive meter above a strip's Drive knob: a row of segments that light from the left as the saturation takes more off the
+    level (0 to -12 dB), amber turning to red. Unlit when the Drive is off. */
+inline void drawDriveMeter (juce::Graphics& g, juce::Rectangle<int> r, float reductionDb)
+{
+    g.setColour (palette::well);
+    g.fillRoundedRectangle (r.toFloat(), 2.0f);
+    constexpr int segs = 12;
+    const float segW = (float) (r.getWidth() - 2) / (float) segs;
+    const int lit = juce::jlimit (0, segs, (int) std::ceil (juce::jlimit (0.0f, 12.0f, -reductionDb) * (float) segs / 12.0f - 0.01f));
+    for (int i = 0; i < segs; ++i)
+    {
+        const float t = (float) i / (float) (segs - 1);
+        const auto on = palette::warn.interpolatedWith (palette::bad, juce::jmax (0.0f, (t - 0.55f) / 0.45f));
+        g.setColour (i < lit ? on : palette::outline.withAlpha (0.35f));
+        g.fillRect ((float) r.getX() + 1.0f + segW * (float) i + 0.5f, (float) r.getY() + 2.0f, segW - 1.0f, (float) r.getHeight() - 4.0f);
+    }
+}
+
 /** Peak level of a LevelMeter with falling bar, peak hold and a clip LED that stays lit for 3 s after the last clip
     (click to clear it). */
 class MeterView : public juce::Component, public juce::SettableTooltipClient

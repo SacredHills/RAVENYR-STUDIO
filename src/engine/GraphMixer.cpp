@@ -234,6 +234,8 @@ void GraphMixer::mix (PlaybackGraph& g, Source& source, float* outL, float* outR
                 juce::FloatVectorOperations::add (bufL[(size_t) ax.target].data(), al, n);
                 juce::FloatVectorOperations::add (bufR[(size_t) ax.target].data(), ar, n);
             }
+            // the strip's Drive knob: saturation after the plugins, before the sends and the fader
+            source.driveActivity (t.meterSlot, t.saturator.process (L, R, n, t.drive));
             for (const auto& s : t.sends)
             {
                 if (! juce::isPositiveAndBelow (s.target, numTracks)) continue;
@@ -289,6 +291,7 @@ void GraphMixer::mix (PlaybackGraph& g, Source& source, float* outL, float* outR
         // every track is read ahead by the master plugins' latency too, so the master's input is that far ahead
         g.masterInserts->process (outL, outR, n, g.masterScL.data(), g.masterScR.data(), g.masterInserts->latency());
     }
+    source.driveActivity (-1, g.masterSaturator.process (outL, outR, n, g.masterDrive));   // the master's Drive knob
     if (! g.masterLanes.empty())
     {
         const float from = g.masterPrevGain < 0.0f ? autoGain : g.masterPrevGain;   // ramped, so moving automation does not click

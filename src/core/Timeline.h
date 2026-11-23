@@ -11,7 +11,7 @@ namespace ids
 {
     #define FF_TL_ID(name) inline const juce::Identifier name { #name };
     FF_TL_ID (TRACK) FF_TL_ID (CLIP) FF_TL_ID (MARKER)
-    FF_TL_ID (id) FF_TL_ID (name) FF_TL_ID (colour) FF_TL_ID (gainDb) FF_TL_ID (pan) FF_TL_ID (mute) FF_TL_ID (solo)
+    FF_TL_ID (id) FF_TL_ID (name) FF_TL_ID (colour) FF_TL_ID (gainDb) FF_TL_ID (drive) FF_TL_ID (pan) FF_TL_ID (mute) FF_TL_ID (solo)
     FF_TL_ID (armed) FF_TL_ID (monitor) FF_TL_ID (inputChannel) FF_TL_ID (inputStereo)
     FF_TL_ID (file) FF_TL_ID (start) FF_TL_ID (length) FF_TL_ID (offset) FF_TL_ID (fadeIn) FF_TL_ID (fadeOut)
     FF_TL_ID (muted) FF_TL_ID (takeGroup) FF_TL_ID (time)

@@ -4,6 +4,7 @@
 #include "AudioCache.h"
 #include "Recorder.h"
 #include "fx/AmpRig.h"
+#include "fx/Saturator.h"
 #include "fx/InsertChain.h"
 #include "fx/InstrumentSlot.h"
 #include "core/Automation.h"
@@ -76,10 +77,12 @@ struct PlayTrack
     juce::int64 midiNextPos = -1;             // where the last rolling block ended (a jump silences held notes)
     bool midiWasRolling = false;
     float prevGainL = -1.0f, prevGainR = -1.0f;   // fader ramp across blocks (automation)
+    float drive = 0.0f;                           // the strip's Drive knob, 0..1
+    fx::Saturator saturator;                      // its state (kept across snapshots)
     /** Same track in the previous snapshot: keep playing where it left off (held notes, fader ramps). */
     void takeStateFrom (const PlayTrack& o) noexcept
     {
-        idle = o.idle; midiNextPos = o.midiNextPos; midiWasRolling = o.midiWasRolling; prevGainL = o.prevGainL; prevGainR = o.prevGainR;
+        idle = o.idle; midiNextPos = o.midiNextPos; midiWasRolling = o.midiWasRolling; prevGainL = o.prevGainL; prevGainR = o.prevGainR; saturator = o.saturator;
     }
     void resetState() noexcept { idle = {}; midiNextPos = -1; midiWasRolling = false; prevGainL = prevGainR = -1.0f; for (auto& l : lanes) l.last = -1.0f; }
 };
@@ -95,6 +98,8 @@ struct PlaybackGraph
     std::array<const float*, fx::InsertChain::maxSlots> masterScL {}, masterScR {};
     std::vector<PlayTrack::Lane> masterLanes;         // automation of the master bus: its volume and its plugins' parameters
     float masterPrevPan = -2.0f;                      // audio thread: the master pan automation of the last block (< -1: none yet)
+    float masterDrive = 0.0f;                         // the master's Drive knob, 0..1
+    fx::Saturator masterSaturator;
     float masterPrevGain = -1.0f;                     // audio thread: the master volume automation of the last block (-1: none yet)
     double sampleRate = 48000.0;
     int missingClips = 0; // clips whose audio is not loaded (yet)

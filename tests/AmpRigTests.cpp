@@ -1,3 +1,4 @@
+#include "engine/fx/Saturator.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "core/RigModel.h"
 #include "core/ProjectFile.h"
@@ -1085,6 +1086,34 @@ struct PluginSlotTests : juce::UnitTest
                     juce::PNGImageFormat().writeImageToStream (img, os);
                 }
             }
+        }
+
+        beginTest ("Drive: off is untouched, quiet stays quiet, loud is rounded off and bounded");
+        {
+            constexpr int n = 4800;
+            std::vector<float> l (n), r (n);
+            const auto fill = [&] (float amp) { for (int i = 0; i < n; ++i) l[(size_t) i] = r[(size_t) i] = amp * std::sin (0.05f * (float) i); };
+            fx::Saturator off;
+            fill (0.8f);
+            const auto ref = l;
+            expectWithinAbsoluteError (off.process (l.data(), r.data(), n, 0.0f), 0.0f, 1.0e-6f);
+            expect (l == ref, "drive 0 does not touch the signal");
+
+            fx::Saturator quiet;
+            fill (0.01f);
+            quiet.process (l.data(), r.data(), n, 1.0f);
+            float peak = 0.0f;
+            for (int i = n / 2; i < n; ++i) peak = juce::jmax (peak, std::abs (l[(size_t) i]));
+            expect (peak > 0.0085f && peak < 0.0115f, "a quiet signal passes at about unity gain");
+
+            fx::Saturator loud;
+            fill (0.9f);
+            const float red = loud.process (l.data(), r.data(), n, 1.0f);
+            float lp = 0.0f;
+            for (int i = 0; i < n; ++i) lp = juce::jmax (lp, std::abs (l[(size_t) i]));
+            expect (red < -1.0f, "a hot signal is reduced and the meter sees it");
+            expect (lp < 0.9f && lp > 0.1f, "peaks are rounded off, not pushed up");
+            expect (std::isfinite (lp));
         }
 
         beginTest ("offline rig without a plugin host reports the plugin");

@@ -54,6 +54,17 @@ ChannelStrip::ChannelStrip (ProjectDocument& d, EngineHost& h, SessionController
     };
     addAndMakeVisible (pan);
 
+    drive.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    drive.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    drive.setRange (0.0, 1.0, 0.01);
+    drive.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (v * 100)) + " %"; };
+    drive.setDoubleClickReturnValue (true, 0.0);
+    drive.setPopupDisplayEnabled (true, true, nullptr);
+    drive.setTooltip ("Drive: tape-style saturation on this strip (after its plugins, before its sends and fader). The meter above shows how hard it is working.");
+    drive.onDragStart = [this] { doc.undo().beginNewTransaction ("Track drive"); };
+    drive.onValueChange = [this] { if (! updating) doc.set (track, ids::drive, drive.getValue()); };
+    addChildComponent (drive);
+
     auto setup = [this] (juce::TextButton& b, juce::Colour c, const juce::Identifier& id) {
         b.setColour (juce::TextButton::buttonOnColourId, c);
         b.setWantsKeyboardFocus (false);
@@ -632,6 +643,7 @@ void ChannelStrip::refresh()
     fader.setValue (juce::jmax (-60.0, (double) automation::volumeAt (track, host.engine.getPositionSeconds())), juce::dontSendNotification);
     faderPrev = fader.getValue();
     pan.setValue ((double) track[ids::pan], juce::dontSendNotification);
+    drive.setValue ((double) track[ids::drive], juce::dontSendNotification);
     mute.setToggleState ((bool) track[ids::mute], juce::dontSendNotification);
     solo.setToggleState ((bool) track[ids::solo], juce::dontSendNotification);
     arm.setToggleState ((bool) track[ids::armed], juce::dontSendNotification);
@@ -667,6 +679,12 @@ void ChannelStrip::tick()
     else if (--holdTicks <= 0) hold = juce::jmax (-100.0f, hold - 1.5f);
     if (const auto c = m.clipCount.load(); c != clipSeen) { clipSeen = c; clipTicks = 90; }
     else if (clipTicks > 0) --clipTicks;
+    if (showDrive)
+    {
+        const float db = host.engine.driveDb[(size_t) juce::jlimit (0, maxTracks - 1, slot)].load (std::memory_order_relaxed);
+        driveLevel = db < driveLevel ? db : juce::jmin (0.0f, driveLevel + 0.6f);   // takes the new reading at once, falls back slowly
+        repaint (driveMeterArea().expanded (2));
+    }
     repaint (meterArea());
 }
 
@@ -795,7 +813,15 @@ void ChannelStrip::paint (juce::Graphics& g)
     drawLevelMeter (g, meterArea(), level, hold, clipTicks > 0, true);
     g.setColour (palette::textDim);
     g.setFont (uiFont (10.0f));
-    g.drawText ("PAN", getLocalBounds().withTrimmedTop (30).withHeight (14), juce::Justification::centred);
+    const int padY = showDrive ? driveHeight : 0;
+    g.drawText ("PAN", getLocalBounds().withTrimmedTop (30 + padY).withHeight (14), juce::Justification::centred);
+    if (showDrive)
+    {
+        drawDriveMeter (g, driveMeterArea(), driveLevel);
+        g.setColour (palette::textDim);
+        g.setFont (uiFont (10.0f));
+        g.drawText ("DRIVE", getLocalBounds().withTrimmedTop (44 + 14 + 14).withHeight (12).withTrimmedLeft (8).withWidth (40), juce::Justification::centredLeft);
+    }
     if (const auto grp = track[ids::group].toString(); grp.isNotEmpty())
     {
         const auto gc = SessionController::groupColour (grp);
@@ -817,6 +843,12 @@ void ChannelStrip::paint (juce::Graphics& g)
 void ChannelStrip::resized()
 {
     auto r = getLocalBounds().reduced (8, 0).withTrimmedTop (44);
+    if (showDrive)
+    {
+        auto d = r.removeFromTop (driveHeight);
+        d.removeFromTop (14);   // the meter
+        drive.setBounds (d.withSizeKeepingCentre (40, 40));
+    }
     pan.setBounds (r.removeFromTop (40).withSizeKeepingCentre (40, 40));
     r.removeFromTop (6);
     auto buttons = r.removeFromTop (24);
@@ -895,7 +927,7 @@ void MixerPage::RackDivider::paint (juce::Graphics& g)
 int ChannelStrip::wantedFaderTop() const
 {
     const int ins = showInserts ? InsertList::visibleRows : 0, routes = routeList.rowsWanted();
-    return 44 + 40 + 6 + 24 + (isInstrumentTrack (track) ? 30 : 6) + ins * InsertList::rowHeight + (ins > 0 ? 6 : 0)
+    return 44 + (showDrive ? driveHeight : 0) + 40 + 6 + 24 + (isInstrumentTrack (track) ? 30 : 6) + ins * InsertList::rowHeight + (ins > 0 ? 6 : 0)
            + routes * RouteList::rowHeight + 6;
 }
 
@@ -1044,6 +1076,18 @@ MixerPage::MixerPage (EngineHost& h, ProjectDocument& d, SessionController& sc, 
     fader.setTooltip ("Main output level (monitoring level; not part of exports)");
     fader.setValue (settings.getDoubleValue ("mainOutDb", 0.0), juce::sendNotificationSync);
     addAndMakeVisible (fader);
+    masterDrive.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    masterDrive.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    masterDrive.setRange (0.0, 1.0, 0.01);
+    masterDrive.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (v * 100)) + " %"; };
+    masterDrive.setDoubleClickReturnValue (true, 0.0);
+    masterDrive.setPopupDisplayEnabled (true, true, nullptr);
+    masterDrive.setTooltip ("Drive: tape-style saturation on the whole mix (after the main plugins). The meter above shows how hard it is working.");
+    masterDrive.onDragStart = [this] { doc.undo().beginNewTransaction ("Main drive"); };
+    masterDrive.onValueChange = [this] {
+        if (auto m = project::masterNode (doc.tree()); m.isValid() && ! updatingMasterDrive) doc.set (m, ids::drive, masterDrive.getValue());
+    };
+    addAndMakeVisible (masterDrive);
     addAndMakeVisible (meterL);
     addAndMakeVisible (meterR);
 
@@ -1104,6 +1148,7 @@ void MixerPage::rebuild()
         const int slot = i++;
         if (isFolder (t)) continue;   // folders only organise the arrange view
         auto* s = strips.add (new ChannelStrip (doc, host, session, t, slot));
+        s->setShowDrive (true);
         stripHolder.addAndMakeVisible (s);
         auto* rk = racks.add (new RackView (session, t));
         for (auto& o : open) if (o.first == t) rk->restoreExpanded (o.second);
@@ -1120,6 +1165,17 @@ void MixerPage::timerCallback()
 {
     meterL.tick();
     meterR.tick();
+    {
+        const float db = host.engine.masterDriveDb.load (std::memory_order_relaxed);
+        masterDriveLevel = db < masterDriveLevel ? db : juce::jmin (0.0f, masterDriveLevel + 0.6f);
+        repaint (masterDriveMeter.expanded (2));
+        if (! masterDrive.isMouseButtonDown())
+            if (auto m = project::masterNode (doc.tree()); m.isValid() && std::abs ((double) m[ids::drive] - masterDrive.getValue()) > 0.004)
+            {
+                const juce::ScopedValueSetter<bool> svs (updatingMasterDrive, true);   // loaded / undone from elsewhere
+                masterDrive.setValue ((double) m[ids::drive], juce::dontSendNotification);
+            }
+    }
     if ((++syncTick & 15) == 0 && ! fader.isMouseButtonDown())   // the editor's pop-up mixer may have moved it (twice a second)
     {
         const double db = settings.getDoubleValue ("mainOutDb", 0.0);
@@ -1144,6 +1200,10 @@ void MixerPage::paint (juce::Graphics& g)
 {
     g.fillAll (palette::bg);
     drawSectionPanel (g, masterBox, "Main out");
+    drawDriveMeter (g, masterDriveMeter, masterDriveLevel);
+    g.setColour (palette::textDim);
+    g.setFont (uiFont (10.0f));
+    g.drawText ("DRIVE", masterDrive.getX() - 46, masterDrive.getY() + 14, 44, 12, juce::Justification::centredRight);
     g.setFont (uiFont (10.0f));
     for (int db : { 6, 0, -6, -12, -18, -24, -36, -60 })   // at the fader's own positions
     {
@@ -1194,6 +1254,12 @@ void MixerPage::resized()
         masterInsertView.setBounds (s.removeFromTop (juce::jmin (InsertList::visibleRows * InsertList::rowHeight, room)));   // fixed height: plugins never move the fader
         masterInserts->setSize (masterInsertView.getWidth() - (want > masterInsertView.getHeight() ? masterInsertView.getScrollBarThickness() + 1 : 0), juce::jmax (want, masterInsertView.getHeight()));
         s.removeFromTop (8);
+    }
+    {
+        auto d = s.removeFromTop (ChannelStrip::driveHeight);
+        masterDriveMeter = d.removeFromTop (14).withTrimmedTop (2).withHeight (10);
+        masterDrive.setBounds (d.withSizeKeepingCentre (40, 40));
+        s.removeFromTop (6);
     }
     auto meters = s.removeFromRight (34);
     scale = s.removeFromRight (28);
