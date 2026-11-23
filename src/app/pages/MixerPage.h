@@ -150,7 +150,7 @@ public:
     /** The pop-up mixer shows the plugin list on the strip (the mixer page has the rack for that). */
     void setShowInserts (bool b) { showInserts = b; if (b) addAndMakeVisible (insertView); else removeChildComponent (&insertView); resized(); }
     /** The Mixer page's strips have a Drive (saturation) knob with a meter above it; the pop-up mixer does not. */
-    void setShowDrive (bool b) { showDrive = b; drive.setVisible (b); resized(); }
+    void setShowDrive (bool b) { showDrive = b; drive.setVisible (b); vuMode.setVisible (b); resized(); }
     static constexpr int driveHeight = 62;   // the VU meter (48) and the knobs' labels (14); the knobs follow
     int dropSide = 0;   // -1 / +1: a dragged track will land before / after this strip
     int alignTop = 0;   // set by the mixer: the lowest fader top of all strips
@@ -174,6 +174,9 @@ private:
     float driveLevel = 0.0f;   // how much the Drive changes the level (dB, 0 or negative), smoothed for the meter
     juce::Rectangle<int> driveMeterArea() const { return { 14, 44 + 2, getWidth() - 28, 44 }; }
     juce::Rectangle<int> driveLabelArea, panLabelArea;
+    juce::TextButton vuMode { "DRV" };   // the dial shows the Drive's work (DRV) or the whole track's level (TRK)
+    float vuTrackLevel = -60.0f;
+    void showDriveMenu();
     juce::TextButton mute { "M" }, solo { "S" }, arm { "R" };
     ContextButton ampButton { "NAM AMP" };   // instrument tracks: the instrument (right-click: change / remove)
     MonitorButton mon;
@@ -274,6 +277,10 @@ private:
     int syncTick = 0;
     juce::Rectangle<int> masterBox, scale;
     bool updatingMasterDrive = false;
+    juce::TextButton masterVuMode { "DRV" };
+    float masterVuTrackLevel = -60.0f;
+    void showMasterDriveMenu();
+    void mouseDown (const juce::MouseEvent& e) override { if (e.eventComponent == &masterDrive && e.mods.isPopupMenu()) showMasterDriveMenu(); }
     juce::Label emptyLabel;
     juce::TextButton addTrackButton { "+ Track" };
     std::unique_ptr<InsertList> masterInserts;   // plugins on the master bus

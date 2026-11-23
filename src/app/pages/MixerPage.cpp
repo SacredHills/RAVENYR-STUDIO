@@ -63,7 +63,11 @@ ChannelStrip::ChannelStrip (ProjectDocument& d, EngineHost& h, SessionController
     drive.setTooltip ("Drive: tape-style saturation on this strip (after its plugins, before its sends and fader). The meter above shows how hard it is working.");
     drive.onDragStart = [this] { doc.undo().beginNewTransaction ("Track drive"); };
     drive.onValueChange = [this] { if (! updating) doc.set (track, ids::drive, drive.getValue()); };
+    drive.addMouseListener (this, false);   // right-click: the oversampling menu
     addChildComponent (drive);
+    vuMode.setTooltip ("What the dial shows: DRV = how hard the Drive is working, TRK = the level of the whole track");
+    vuMode.onClick = [this] { track.setProperty (ids::vuTrack, ! (bool) track[ids::vuTrack], nullptr); vuMode.setButtonText ((bool) track[ids::vuTrack] ? "TRK" : "DRV"); repaint(); };
+    addChildComponent (vuMode);
 
     auto setup = [this] (juce::TextButton& b, juce::Colour c, const juce::Identifier& id) {
         b.setColour (juce::TextButton::buttonOnColourId, c);
@@ -644,6 +648,7 @@ void ChannelStrip::refresh()
     faderPrev = fader.getValue();
     pan.setValue ((double) track[ids::pan], juce::dontSendNotification);
     drive.setValue ((double) track[ids::drive], juce::dontSendNotification);
+    vuMode.setButtonText ((bool) track[ids::vuTrack] ? "TRK" : "DRV");
     mute.setToggleState ((bool) track[ids::mute], juce::dontSendNotification);
     solo.setToggleState ((bool) track[ids::solo], juce::dontSendNotification);
     arm.setToggleState ((bool) track[ids::armed], juce::dontSendNotification);
@@ -683,6 +688,7 @@ void ChannelStrip::tick()
     {
         const float db = host.engine.driveDb[(size_t) juce::jlimit (0, maxTracks - 1, slot)].load (std::memory_order_relaxed);
         driveLevel = db < driveLevel ? db : juce::jmin (0.0f, driveLevel + 0.6f);   // takes the new reading at once, falls back slowly
+        vuTrackLevel += (juce::jmax (-60.0f, level) - vuTrackLevel) * 0.35f;
         repaint (driveMeterArea().expanded (2));
     }
     repaint (meterArea());
@@ -696,8 +702,28 @@ juce::Rectangle<int> ChannelStrip::meterArea() const
     return { getWidth() - 3 - 16, top, 10, juce::jmax (10, bottom - top) };
 }
 
+void ChannelStrip::showDriveMenu()
+{
+    juce::PopupMenu m;
+    m.addSectionHeader ("Drive oversampling");
+    const int cur = juce::jlimit (0, 2, (int) track.getProperty (ids::driveOs, 1));
+    m.addItem (1, "Off (lightest)", true, cur == 0);
+    m.addItem (2, "2x", true, cur == 1);
+    m.addItem (3, "4x (cleanest, heaviest)", true, cur == 2);
+    m.addSeparator();
+    m.addItem (4, "Reset Drive");
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&drive), [this, safe = juce::Component::SafePointer<ChannelStrip> (this)] (int r) {
+        if (safe == nullptr || r == 0) return;
+        doc.undo().beginNewTransaction ("Track drive");
+        if (r == 4) doc.set (track, ids::drive, 0.0);
+        else doc.set (track, ids::driveOs, r - 1);
+    });
+}
+
 void ChannelStrip::mouseDown (const juce::MouseEvent& e)
 {
+    if (showDrive && e.eventComponent == &drive && e.mods.isPopupMenu()) { showDriveMenu(); return; }
+    if (e.eventComponent == &drive) return;
     if (e.mods.isPopupMenu())
     {
         session.markMixerSelect();
@@ -815,7 +841,7 @@ void ChannelStrip::paint (juce::Graphics& g)
     g.setFont (uiFont (10.0f));
     if (showDrive)
     {
-        drawVuMeter (g, driveMeterArea(), driveLevel);
+        drawVuMeter (g, driveMeterArea(), (bool) track[ids::vuTrack] ? vuTrackLevel : driveLevel, (bool) track[ids::vuTrack]);
         g.drawText ("DRIVE", driveLabelArea, juce::Justification::centred);
         g.drawText ("PAN", panLabelArea, juce::Justification::centred);
     }
@@ -849,6 +875,7 @@ void ChannelStrip::resized()
         auto left = row.removeFromLeft (row.getWidth() / 2);
         drive.setBounds (left.withSizeKeepingCentre (40, 40));
         pan.setBounds (row.withSizeKeepingCentre (40, 40));
+        vuMode.setBounds (driveMeterArea().getRight() - 30, driveMeterArea().getY() + 3, 26, 13);
         driveLabelArea = drive.getBounds().withY (drive.getY() - 14).withHeight (14).expanded (10, 0);
         panLabelArea = pan.getBounds().withY (pan.getY() - 14).withHeight (14).expanded (10, 0);
     }
@@ -1090,7 +1117,13 @@ MixerPage::MixerPage (EngineHost& h, ProjectDocument& d, SessionController& sc, 
     masterDrive.onValueChange = [this] {
         if (auto m = project::masterNode (doc.tree()); m.isValid() && ! updatingMasterDrive) doc.set (m, ids::drive, masterDrive.getValue());
     };
+    masterDrive.addMouseListener (this, false);   // right-click: the oversampling menu
     addAndMakeVisible (masterDrive);
+    masterVuMode.setTooltip ("What the dial shows: DRV = how hard the Drive is working, TRK = the level of the whole mix");
+    masterVuMode.onClick = [this] {
+        if (auto m = project::masterNode (doc.tree()); m.isValid()) { m.setProperty (ids::vuTrack, ! (bool) m[ids::vuTrack], nullptr); masterVuMode.setButtonText ((bool) m[ids::vuTrack] ? "TRK" : "DRV"); repaint(); }
+    };
+    addAndMakeVisible (masterVuMode);
     addAndMakeVisible (meterL);
     addAndMakeVisible (meterR);
 
@@ -1164,6 +1197,28 @@ void MixerPage::rebuild()
     resized();
 }
 
+void MixerPage::showMasterDriveMenu()
+{
+    auto mn = project::masterNode (doc.tree());
+    if (! mn.isValid()) return;
+    juce::PopupMenu m;
+    m.addSectionHeader ("Main drive oversampling");
+    const int cur = juce::jlimit (0, 2, (int) mn.getProperty (ids::driveOs, 1));
+    m.addItem (1, "Off (lightest)", true, cur == 0);
+    m.addItem (2, "2x", true, cur == 1);
+    m.addItem (3, "4x (cleanest, heaviest)", true, cur == 2);
+    m.addSeparator();
+    m.addItem (4, "Reset Drive");
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&masterDrive), [this, safe = juce::Component::SafePointer<MixerPage> (this)] (int r) {
+        if (safe == nullptr || r == 0) return;
+        auto n = project::masterNode (doc.tree());
+        if (! n.isValid()) return;
+        doc.undo().beginNewTransaction ("Main drive");
+        if (r == 4) doc.set (n, ids::drive, 0.0);
+        else doc.set (n, ids::driveOs, r - 1);
+    });
+}
+
 void MixerPage::timerCallback()
 {
     meterL.tick();
@@ -1171,6 +1226,8 @@ void MixerPage::timerCallback()
     {
         const float db = host.engine.masterDriveDb.load (std::memory_order_relaxed);
         masterDriveLevel = db < masterDriveLevel ? db : juce::jmin (0.0f, masterDriveLevel + 0.6f);
+        masterVuTrackLevel += (juce::jmax (-60.0f, juce::jmax (meterL.levelDb(), meterR.levelDb())) - masterVuTrackLevel) * 0.35f;
+        if (auto m = project::masterNode (doc.tree()); m.isValid()) masterVuMode.setButtonText ((bool) m[ids::vuTrack] ? "TRK" : "DRV");
         repaint (masterDriveMeter.expanded (2));
         if (! masterDrive.isMouseButtonDown())
             if (auto m = project::masterNode (doc.tree()); m.isValid() && std::abs ((double) m[ids::drive] - masterDrive.getValue()) > 0.004)
@@ -1203,7 +1260,8 @@ void MixerPage::paint (juce::Graphics& g)
 {
     g.fillAll (palette::bg);
     drawSectionPanel (g, masterBox, "Main out");
-    drawVuMeter (g, masterDriveMeter, masterDriveLevel);
+    const bool masterTrk = [&] { auto m = project::masterNode (doc.tree()); return m.isValid() && (bool) m[ids::vuTrack]; }();
+    drawVuMeter (g, masterDriveMeter, masterTrk ? masterVuTrackLevel : masterDriveLevel, masterTrk);
     g.setColour (palette::textDim);
     g.setFont (uiFont (10.0f));
     g.drawText ("DRIVE", masterDrive.getBounds().withY (masterDrive.getY() - 14).withHeight (14).expanded (10, 0), juce::Justification::centred);
@@ -1261,6 +1319,7 @@ void MixerPage::resized()
     {
         auto d = s.removeFromTop (ChannelStrip::driveHeight + 40);
         masterDriveMeter = d.removeFromTop (44).withTrimmedTop (2).reduced (14, 0);
+        masterVuMode.setBounds (masterDriveMeter.getRight() - 30, masterDriveMeter.getY() + 3, 26, 13);
         d.removeFromTop (16);
         masterDrive.setBounds (d.withSizeKeepingCentre (40, 40));
         s.removeFromTop (6);

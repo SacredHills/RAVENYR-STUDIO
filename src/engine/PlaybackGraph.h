@@ -78,6 +78,7 @@ struct PlayTrack
     bool midiWasRolling = false;
     float prevGainL = -1.0f, prevGainR = -1.0f;   // fader ramp across blocks (automation)
     float drive = 0.0f;                           // the strip's Drive knob, 0..1
+    int driveOs = 1;                              // its oversampling: 0 off, 1 = 2x, 2 = 4x
     fx::Saturator saturator;                      // its state (kept across snapshots)
     /** Same track in the previous snapshot: keep playing where it left off (held notes, fader ramps). */
     void takeStateFrom (const PlayTrack& o) noexcept
@@ -98,7 +99,8 @@ struct PlaybackGraph
     std::array<const float*, fx::InsertChain::maxSlots> masterScL {}, masterScR {};
     std::vector<PlayTrack::Lane> masterLanes;         // automation of the master bus: its volume and its plugins' parameters
     float masterPrevPan = -2.0f;                      // audio thread: the master pan automation of the last block (< -1: none yet)
-    float masterDrive = 0.0f;                         // the master's Drive knob, 0..1
+    float masterDrive = 0.0f;
+    int masterDriveOs = 1;                         // the master's Drive knob, 0..1
     fx::Saturator masterSaturator;
     float masterPrevGain = -1.0f;                     // audio thread: the master volume automation of the last block (-1: none yet)
     double sampleRate = 48000.0;

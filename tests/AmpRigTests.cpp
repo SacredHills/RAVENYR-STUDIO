@@ -1116,6 +1116,40 @@ struct PluginSlotTests : juce::UnitTest
             expect (std::isfinite (lp));
         }
 
+        beginTest ("Drive: oversampling keeps harmonics from folding back, and turning it on does not click");
+        {
+            constexpr int n = 9600;
+            const double sr = 48000.0;
+            const auto alias = [&] (int os)   // level of the 3 kHz component (the third harmonic of 15 kHz folds there)
+            {
+                fx::Saturator sat;
+                std::vector<float> l (n), r (n);
+                for (int i = 0; i < n; ++i) l[(size_t) i] = r[(size_t) i] = 0.8f * std::sin (2.0f * juce::MathConstants<float>::pi * 15000.0f * (float) i / 48000.0f);
+                for (int blk = 0; blk < n; blk += 480) sat.process (l.data() + blk, r.data() + blk, 480, 1.0f, os, sr);
+                double re = 0, im = 0;
+                for (int i = n / 2; i < n; ++i)
+                {
+                    const double ph = 2.0 * juce::MathConstants<double>::pi * 3000.0 * i / sr;
+                    re += l[(size_t) i] * std::cos (ph); im += l[(size_t) i] * std::sin (ph);
+                }
+                for (int i = n / 2; i < n; ++i) expect (std::isfinite (l[(size_t) i]));
+                return std::sqrt (re * re + im * im) / (n / 2);
+            };
+            const double a0 = alias (0), a2 = alias (2);
+            expect (a2 < a0 * 0.5, "4x oversampling folds back much less than none");
+
+            fx::Saturator sat;   // a loud 100 Hz tone; Drive comes on in the middle (the first blocks are bypassed)
+            std::vector<float> l (n), r (n);
+            for (int i = 0; i < n; ++i) l[(size_t) i] = r[(size_t) i] = 0.5f * std::sin (2.0f * juce::MathConstants<float>::pi * 100.0f * (float) i / 48000.0f);
+            const auto ref = l;
+            for (int blk = 0; blk < n; blk += 480) sat.process (l.data() + blk, r.data() + blk, 480, blk < 4800 ? 0.0f : 0.5f, 2, sr);
+            float worst = 0.0f;
+            for (int i = 4790; i < 5400; ++i) worst = juce::jmax (worst, std::abs (l[(size_t) i] - l[(size_t) i - 1]));
+            float natural = 0.0f;
+            for (int i = 1; i < n; ++i) natural = juce::jmax (natural, std::abs (ref[(size_t) i] - ref[(size_t) i - 1]));
+            expect (worst < natural * 3.0f, "no click when Drive comes on");
+        }
+
         beginTest ("offline rig without a plugin host reports the plugin");
         {
             auto r = rg::makeDefault();

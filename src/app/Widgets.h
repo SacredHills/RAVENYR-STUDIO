@@ -250,9 +250,10 @@ inline void drawLevelMeter (juce::Graphics& g, juce::Rectangle<int> r, float lev
     }
 }
 
-/** The Drive meter above a strip's Drive knob: an analogue VU dial. The needle rests at the left and swings right as the
-    saturation takes more off the level (0 to -12 dB); the scale is cream with a red zone at the end. */
-inline void drawVuMeter (juce::Graphics& g, juce::Rectangle<int> r, float reductionDb)
+/** The meter above a strip's Drive knob: an analogue VU dial. The needle rests at the left. In drive mode `value` is the change
+    in level the saturation makes (0 to -12 dB) and the needle swings right as it takes more off; in track mode `value` is the
+    track's level in dBFS (-36 to 0) and the red zone is the top. */
+inline void drawVuMeter (juce::Graphics& g, juce::Rectangle<int> r, float value, bool trackMode = false)
 {
     const auto face = r.toFloat();
     g.setColour (juce::Colour (0xff0b0b0b));
@@ -269,32 +270,34 @@ inline void drawVuMeter (juce::Graphics& g, juce::Rectangle<int> r, float reduct
     const auto point = [&] (float ang, float rad) { return juce::Point<float> (cx + rad * std::sin (ang), pivotY - rad * std::cos (ang)); };
     const auto ink = juce::Colour (0xff2b261a);
     const auto red = juce::Colour (0xffb0301f);
+    const float redFrom = trackMode ? 0.83f : 0.75f;
     // the scale arc, its red end, then the ticks
     for (int pass = 0; pass < 2; ++pass)
     {
         juce::Path arc;
-        arc.addCentredArc (cx, pivotY, radius, radius, 0.0f, pass == 0 ? a0 : a0 + (a1 - a0) * 0.75f, pass == 0 ? a0 + (a1 - a0) * 0.75f : a1, true);
+        arc.addCentredArc (cx, pivotY, radius, radius, 0.0f, pass == 0 ? a0 : a0 + (a1 - a0) * redFrom, pass == 0 ? a0 + (a1 - a0) * redFrom : a1, true);
         g.setColour (pass == 0 ? ink : red);
         g.strokePath (arc, juce::PathStrokeType (pass == 0 ? 1.0f : 2.4f));
     }
     g.setFont (uiFont (8.0f));
-    for (int db = 0; db <= 12; ++db)
+    for (int k = 0; k <= 12; ++k)
     {
-        const float ang = a0 + (a1 - a0) * (float) db / 12.0f;
-        const bool major = db % 3 == 0;
-        g.setColour (db >= 9 ? red : ink);
+        const float f = (float) k / 12.0f, ang = a0 + (a1 - a0) * f;
+        const int db = trackMode ? -36 + 3 * k : k;
+        const bool major = trackMode ? (k == 0 || k == 4 || k == 6 || k == 8 || k == 10 || k == 12) : k % 3 == 0;
+        g.setColour (f >= redFrom - 0.001f ? red : ink);
         g.drawLine ({ point (ang, radius), point (ang, radius - (major ? 5.0f : 3.0f)) }, major ? 1.2f : 0.8f);
         if (major)
         {
             const auto p = point (ang, radius - 12.0f);
-            g.drawText (juce::String (db), juce::Rectangle<float> (p.x - 8.0f, p.y - 5.0f, 16.0f, 10.0f), juce::Justification::centred);
+            g.drawText (juce::String (db), juce::Rectangle<float> (p.x - 9.0f, p.y - 5.0f, 18.0f, 10.0f), juce::Justification::centred);
         }
     }
     g.setColour (ink.withAlpha (0.7f));
     g.setFont (uiFont (8.0f).boldened());
-    g.drawText ("dB", juce::Rectangle<float> (face.getX() + 5.0f, face.getBottom() - 12.0f, 20.0f, 10.0f), juce::Justification::centredLeft);
+    g.drawText (trackMode ? "dBFS" : "dB", juce::Rectangle<float> (face.getX() + 4.0f, face.getY() + 2.0f, 28.0f, 10.0f), juce::Justification::centredLeft);
     // the needle
-    const float t = juce::jlimit (0.0f, 1.0f, -reductionDb / 12.0f);
+    const float t = trackMode ? juce::jlimit (0.0f, 1.0f, (value + 36.0f) / 36.0f) : juce::jlimit (0.0f, 1.0f, -value / 12.0f);
     const float ang = a0 + (a1 - a0) * t;
     g.setColour (juce::Colours::black.withAlpha (0.25f));
     g.drawLine ({ point (ang, 6.0f).translated (1.5f, 1.5f), point (ang, radius + 2.0f).translated (1.5f, 1.5f) }, 1.4f);   // its shadow
