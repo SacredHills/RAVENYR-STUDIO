@@ -1099,22 +1099,25 @@ struct PluginSlotTests : juce::UnitTest
             expectWithinAbsoluteError (off.process (l.data(), r.data(), n, 0.0f), 0.0f, 1.0e-6f);
             expect (l == ref, "drive 0 does not touch the signal");
 
-            fx::Saturator quiet;
-            fill (0.01f);
-            for (int blk = 0; blk < n; blk += 480) quiet.process (l.data() + blk, r.data() + blk, 480, 1.0f);
-            float peak = 0.0f;
-            for (int i = n / 2; i < n; ++i) peak = juce::jmax (peak, std::abs (l[(size_t) i]));
-            expect (peak > 0.04f && peak < 0.09f, "a quiet signal is lifted by about the drive gain");
-
-            fx::Saturator loud;
-            fill (0.9f);
-            float red = 0.0f;
-            for (int blk = 0; blk < n; blk += 480) red = loud.process (l.data() + blk, r.data() + blk, 480, 1.0f);
-            float lp = 0.0f;
-            for (int i = n / 2; i < n; ++i) lp = juce::jmax (lp, std::abs (l[(size_t) i]));
-            expect (red < -1.0f, "a hot signal is reduced and the meter sees it");
-            expect (lp < 0.9f && lp > 0.1f, "peaks are rounded off, not pushed up");
-            expect (std::isfinite (lp));
+            // Drive changes the tone, not the loudness: after a moment the output is as loud as the input
+            const auto rms = [&] (const std::vector<float>& v) { double a = 0; for (size_t i = v.size() / 2; i < v.size(); ++i) a += (double) v[i] * v[i]; return std::sqrt (a / (double) (v.size() / 2)); };
+            constexpr int nLong = 96000;
+            for (float amp : { 0.01f, 0.3f, 0.9f })
+            {
+                std::vector<float> a (nLong), b (nLong);
+                for (int i = 0; i < nLong; ++i) a[(size_t) i] = amp * std::sin (0.05f * (float) i) + 0.3f * amp * std::sin (0.31f * (float) i);
+                const auto in = a;
+                b = a;
+                fx::Saturator sat;
+                float red = 0.0f;
+                for (int blk = 0; blk < nLong; blk += 480) red = sat.process (a.data() + blk, b.data() + blk, 480, 1.0f);
+                const double ratio = rms (a) / rms (in);
+                expect (ratio > 0.8 && ratio < 1.25, "the level stays about the same with Drive up (amp " + juce::String (amp) + ": " + juce::String (ratio) + ")");
+                float pk = 0.0f;
+                for (int i = nLong / 2; i < nLong; ++i) pk = juce::jmax (pk, std::abs (a[(size_t) i]));
+                expect (std::isfinite (pk) && pk < 2.0f, "bounded");
+                if (amp > 0.5f) expect (red < -1.0f, "a hot signal is saturated and the meter sees it");
+            }
         }
 
         beginTest ("Drive: oversampling keeps harmonics from folding back, and turning it on does not click");
