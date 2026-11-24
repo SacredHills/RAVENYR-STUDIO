@@ -56,7 +56,6 @@ private:
       like tape and transformers, the low end saturates first and the top stays clean.
     - A small head-bump lifts the lows going in; the highs soften a little as Drive goes up.
     - A slow, gentle compression (the tape "squash") takes a few dB off hot peaks.
-    - Drive changes the tone, not the loudness: the output is trimmed to the loudness of the input (measured over ~0.4 s).
     - A bias makes the clipping slightly asymmetric (even harmonics: warmth); a DC blocker removes what it leaves.
     It is an approximation built from those behaviours, not a copy of any particular console.
     Runs at 1x, 2x or 4x oversampling (own half-band filters, so nothing is allocated on the audio thread) to keep the
@@ -69,8 +68,6 @@ struct Saturator
     float prevDrive = 0.0f;
     int lastOs = 0;                          // 0, 1, 2 = off, 2x, 4x (a change clears the filters)
     bool active = false;                     // the wet path has been running up to the previous block
-    float msIn = 0.0f, msOut = 0.0f;         // loudness (mean square, ~0.4 s) going in and coming out of the saturator
-    float comp = 1.0f;                       // the level-matching gain applied to the wet signal
 
 
     static float shape (float x) noexcept   // tanh, rational approximation (exact at 0, +-1 at +-3)
@@ -107,14 +104,9 @@ struct Saturator
         const float attack = coef (150.0), release = coef (4.0);   // the squash: ~1 ms attack, ~40 ms release
         constexpr float r = 0.9993f;   // DC blocker, about 5 Hz at 48 kHz
 
-        double inSum = 0.0, outSum = 0.0, sqIn = 0.0, sqOut = 0.0;
-        const float compFrom = starting ? 1.0f : comp;
+        double inSum = 0.0, outSum = 0.0;
         for (int i = 0; i < n; ++i) inSum += std::abs (L[i]) + std::abs (R[i]);
         store (L, R, n);   // the dry input, for when Drive goes off again
-
-        // Level matching: Drive changes the tone, not the loudness. The wet signal is trimmed so that its loudness
-        // follows the dry one (both measured over ~0.4 s, so it does not pump).
-        const float compTarget = starting ? 1.0f : juce::jlimit (0.05f, 8.0f, std::sqrt ((msIn + 1.0e-9f) / (msOut + 1.0e-9f)));
 
         constexpr int chunk = 128, fadeLen = 64;
         float a[2][chunk * 4], b[2][chunk * 4], dry[2][chunk];
@@ -159,9 +151,6 @@ struct Saturator
                 else { dn2[c].down (a[c], b[c], 2 * m); dn1[c].down (b[c], io[c] + s, m); }
                 for (int i = 0; i < m; ++i)   // the crossfade with the dry signal when Drive comes on / goes off, then the DC blocker
                 {
-                    sqIn += (double) dry[c][i] * dry[c][i];
-                    sqOut += (double) io[c][s + i] * io[c][s + i];
-                    io[c][s + i] *= compFrom + (compTarget - compFrom) * (float) (s + i + 1) / (float) n;   // level matching
                     const float x = (float) (s + i + 1) / (float) fadeLen;
                     const float w = starting ? juce::jmin (1.0f, x) : tail ? juce::jmax (0.0f, 1.0f - x) : 1.0f;
                     const float y = dry[c][i] * (1.0f - w) + io[c][s + i] * w, o = y - dcIn[c] + r * dcOut[c];
@@ -171,17 +160,10 @@ struct Saturator
             }
         }
         for (int i = 0; i < n; ++i) outSum += std::abs (L[i]) + std::abs (R[i]);
-        {
-            const float mIn = (float) (sqIn / (2.0 * n)), mOut = (float) (sqOut / (2.0 * n));
-            const float c = starting ? 1.0f : (float) (1.0 - std::exp (-(double) n / (sampleRate * 0.4)));
-            msIn += c * (mIn - msIn);
-            msOut += c * (mOut - msOut);
-            comp = compTarget;
-        }
         if (inSum < 1.0e-6) return 0.0f;
         // how far below the straight (unclipped) gain the block came out: the saturation at work, for the meter
         const float gEnd = 1.0f + 39.0f * std::pow (drive, 1.5f), straight = gEnd / (1.0f + (gEnd - 1.0f) * 0.14f);
-        return juce::jmin (0.0f, 20.0f * std::log10 ((float) (outSum / inSum) / (straight * 0.5f * (compFrom + compTarget)) + 1.0e-6f));
+        return juce::jmin (0.0f, 20.0f * std::log10 ((float) (outSum / inSum) / straight + 1.0e-6f));
     }
 
 private:
