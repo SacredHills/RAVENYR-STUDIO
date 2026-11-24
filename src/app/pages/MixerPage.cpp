@@ -707,6 +707,11 @@ juce::Rectangle<int> ChannelStrip::meterArea() const
 void ChannelStrip::showDriveMenu()
 {
     juce::PopupMenu m;
+    const bool pre = (bool) track.getProperty (ids::drivePre, false);
+    m.addSectionHeader ("Drive position");
+    m.addItem (5, "Post plugins (after the plugins)", true, ! pre);
+    m.addItem (6, "Pre plugins (before the plugins)", true, pre);
+    m.addSeparator();
     m.addSectionHeader ("Drive oversampling");
     const int cur = juce::jlimit (0, 2, (int) track.getProperty (ids::driveOs, 1));
     m.addItem (1, "Off (lightest)", true, cur == 0);
@@ -718,6 +723,7 @@ void ChannelStrip::showDriveMenu()
         if (safe == nullptr || r == 0) return;
         doc.undo().beginNewTransaction ("Track drive");
         if (r == 4) doc.set (track, ids::drive, 0.0);
+        else if (r >= 5) doc.set (track, ids::drivePre, r == 6);
         else doc.set (track, ids::driveOs, r - 1);
     });
 }

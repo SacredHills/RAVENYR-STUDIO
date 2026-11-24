@@ -63,6 +63,11 @@ static void clearLoads (PlayTrack& t) noexcept
     if (t.instrument != nullptr) t.instrument->cpuLoad.store (0.0f, std::memory_order_relaxed);
 }
 
+static bool preDrive (const PlayTrack& t) noexcept   // this strip's Drive runs before its plugins
+{
+    return t.drivePre && t.instrument == nullptr && (t.rig != nullptr || t.inserts != nullptr);
+}
+
 void GraphMixer::processTrack (PlayTrack& t, float* L, float* R, int n) noexcept
 {
     // plugins are told the song position of the audio they receive: playback reads this track's clips (and MIDI)
@@ -198,6 +203,13 @@ void GraphMixer::mix (PlaybackGraph& g, Source& source, float* outL, float* outR
                     t.scR[(size_t) sc.first] = scBufR[(size_t) sc.second].data();
                 }
         }
+        // Drive set to "pre": before the plugins (instruments make their sound inside, so they stay post)
+        for (int i : stage)
+        {
+            auto& t = g.tracks[(size_t) i];
+            if (preDrive (t))
+                source.driveActivity (t.meterSlot, t.saturator.process (bufL[(size_t) i].data(), bufR[(size_t) i].data(), n, t.drive, t.driveOs, sr));
+        }
         JobContext ctx { this, &g, n };
         if (workers != nullptr) workers->run ((int) stage.size(), &GraphMixer::processJob, &ctx);
         else for (int i = 0; i < (int) stage.size(); ++i) processJob (&ctx, i);
@@ -235,7 +247,8 @@ void GraphMixer::mix (PlaybackGraph& g, Source& source, float* outL, float* outR
                 juce::FloatVectorOperations::add (bufR[(size_t) ax.target].data(), ar, n);
             }
             // the strip's Drive knob: saturation after the plugins, before the sends and the fader
-            source.driveActivity (t.meterSlot, t.saturator.process (L, R, n, t.drive, t.driveOs, sr));
+            if (! preDrive (t))
+                source.driveActivity (t.meterSlot, t.saturator.process (L, R, n, t.drive, t.driveOs, sr));
             for (const auto& s : t.sends)
             {
                 if (! juce::isPositiveAndBelow (s.target, numTracks)) continue;

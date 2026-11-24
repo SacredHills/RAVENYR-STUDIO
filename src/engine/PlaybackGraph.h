@@ -78,6 +78,7 @@ struct PlayTrack
     bool midiWasRolling = false;
     float prevGainL = -1.0f, prevGainR = -1.0f;   // fader ramp across blocks (automation)
     float drive = 0.0f;                           // the strip's Drive knob, 0..1
+    bool drivePre = false;                        // Drive runs before the plugins instead of after them
     int driveOs = 1;                              // its oversampling: 0 off, 1 = 2x, 2 = 4x
     fx::Saturator saturator;                      // its state (kept across snapshots)
     /** Same track in the previous snapshot: keep playing where it left off (held notes, fader ramps). */
