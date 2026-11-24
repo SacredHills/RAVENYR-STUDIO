@@ -227,11 +227,12 @@ inline void drawLevelMeter (juce::Graphics& g, juce::Rectangle<int> r, float lev
     const float n = levelToProportion (levelDb);
     auto filled = vertical ? r.withTop (r.getBottom() - juce::roundToInt (n * (float) r.getHeight()))
                            : r.withWidth (juce::roundToInt (n * (float) r.getWidth()));
+    const auto blue = juce::Colour (0xff3d8bff);   // blue at the bottom, then yellow, then red at the top
     juce::ColourGradient grad = vertical
-        ? juce::ColourGradient (palette::good, 0.0f, (float) r.getBottom(), palette::bad, 0.0f, (float) r.getY(), false)
-        : juce::ColourGradient (palette::good, (float) r.getX(), 0.0f, palette::bad, (float) r.getRight(), 0.0f, false);
-    grad.addColour (levelToProportion (-12.0f), palette::good);
-    grad.addColour (levelToProportion (-6.0f), palette::warn);
+        ? juce::ColourGradient (blue, 0.0f, (float) r.getBottom(), palette::bad, 0.0f, (float) r.getY(), false)
+        : juce::ColourGradient (blue, (float) r.getX(), 0.0f, palette::bad, (float) r.getRight(), 0.0f, false);
+    grad.addColour (levelToProportion (-18.0f), blue);
+    grad.addColour (levelToProportion (-9.0f), palette::warn);
     grad.addColour (levelToProportion (-3.0f), palette::warn);
     grad.addColour (levelToProportion (-0.5f), palette::bad);
     g.setGradientFill (grad);
@@ -307,6 +308,13 @@ inline void drawVuMeter (juce::Graphics& g, juce::Rectangle<int> r, float value,
     g.fillEllipse (cx - 7.0f, face.getBottom() - 5.0f, 14.0f, 14.0f);   // the hub peeks over the bottom edge
 }
 
+/** Meter ballistics for one 30 Hz tick: the bar rises quickly (most of the way to a new peak at once) and falls back slowly,
+    about 15 dB/s, so it glides instead of flickering with every block's peak. */
+inline void meterStep (float db, float& level) noexcept
+{
+    level = db > level ? level + (db - level) * 0.65f : juce::jmax (db, level - 0.5f);
+}
+
 /** Peak level of a LevelMeter with falling bar, peak hold and a clip LED that stays lit for 3 s after the last clip
     (click to clear it). */
 class MeterView : public juce::Component, public juce::SettableTooltipClient
@@ -318,9 +326,9 @@ public:
     {
         const float pk = meter.uiPeak;
         const float db = gainToDb (pk);
-        level = db > level ? db : juce::jmax (db, level - 1.6f); // ~50 dB/s at 30 Hz
+        meterStep (db, level);
         if (db >= hold) { hold = db; holdTicks = 45; }
-        else if (--holdTicks <= 0) hold = juce::jmax (-60.0f, hold - 1.5f);
+        else if (--holdTicks <= 0) hold = juce::jmax (-60.0f, hold - 0.5f);
         if (const auto c = meter.clipCount.load(); c != clipSeen) { clipSeen = c; clipTicks = 90; }
         else if (clipTicks > 0) --clipTicks;
         repaint();

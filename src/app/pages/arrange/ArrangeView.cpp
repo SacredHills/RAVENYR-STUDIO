@@ -370,7 +370,7 @@ void TrackHeader::tickMeter()
     auto& m = owner.host.engine.trackMeters[(size_t) juce::jlimit (0, maxTracks - 1, index)];
     m.uiTake();
     const float db = gainToDb (m.uiPeak);
-    meterLevel = db > meterLevel ? db : juce::jmax (db, meterLevel - 1.6f);
+    meterStep (db, meterLevel);
     repaint (getLocalBounds().removeFromRight (8));
 }
 
@@ -425,7 +425,7 @@ void TrackHeader::paint (juce::Graphics& g)
     g.setColour (palette::well);
     g.fillRect (meter);
     const float n = juce::jlimit (0.0f, 1.0f, (meterLevel + 60.0f) / 60.0f);
-    g.setColour (meterLevel > -0.5f ? palette::bad : (meterLevel > -9.0f ? palette::warn : palette::good));
+    g.setColour (meterLevel > -0.5f ? palette::bad : (meterLevel > -9.0f ? palette::warn : juce::Colour (0xff3d8bff)));
     g.fillRect (meter.withTop (meter.getBottom() - juce::roundToInt (n * meter.getHeight())));
 }
 

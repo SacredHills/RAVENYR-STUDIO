@@ -679,9 +679,9 @@ void ChannelStrip::tick()
     auto& m = host.engine.trackMeters[(size_t) juce::jlimit (0, maxTracks - 1, slot)];
     m.uiTake();
     const float db = gainToDb (m.uiPeak);
-    level = db > level ? db : juce::jmax (db, level - 1.6f);
+    meterStep (db, level);
     if (db >= hold) { hold = db; holdTicks = 45; }
-    else if (--holdTicks <= 0) hold = juce::jmax (-100.0f, hold - 1.5f);
+    else if (--holdTicks <= 0) hold = juce::jmax (-100.0f, hold - 0.5f);
     if (const auto c = m.clipCount.load(); c != clipSeen) { clipSeen = c; clipTicks = 90; }
     else if (clipTicks > 0) --clipTicks;
     if (showDrive)

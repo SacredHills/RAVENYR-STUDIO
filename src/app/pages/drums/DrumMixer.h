@@ -97,7 +97,7 @@ private:
         {
             const float pk = owner.host.engine.drums().piecePeak[(size_t) piece].exchange (0.0f);
             const float db = juce::Decibels::gainToDecibels (pk, -100.0f);
-            level = db > level ? db : juce::jmax (db, level - 1.6f);
+            meterStep (db, level);
             repaint (meterArea());
         }
         juce::Rectangle<int> meterArea() const { return fader.getBounds().withTrimmedBottom (20).removeFromRight (8).translated (6, 0); }
