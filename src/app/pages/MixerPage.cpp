@@ -687,8 +687,10 @@ void ChannelStrip::tick()
     if (showDrive)
     {
         const float db = host.engine.driveDb[(size_t) juce::jlimit (0, maxTracks - 1, slot)].load (std::memory_order_relaxed);
-        driveLevel = db < driveLevel ? db : juce::jmin (0.0f, driveLevel + 0.6f);   // takes the new reading at once, falls back slowly
-        vuTrackLevel += (juce::jmax (-60.0f, level) - vuTrackLevel) * 0.35f;
+        // VU ballistics: the needle integrates over a few tenths of a second, so it glides instead of twitching with every block
+        driveLevel += (juce::jmin (0.0f, db) - driveLevel) * 0.10f;
+        const float lin = juce::Decibels::decibelsToGain (vuTrackLevel), target = juce::Decibels::decibelsToGain (juce::jmax (-60.0f, level));
+        vuTrackLevel = juce::Decibels::gainToDecibels (lin + (target - lin) * 0.12f, -60.0f);
         repaint (driveMeterArea().expanded (2));
     }
     repaint (meterArea());
@@ -737,7 +739,7 @@ void ChannelStrip::mouseDown (const juce::MouseEvent& e)
 
 void ChannelStrip::mouseDrag (const juce::MouseEvent& e)
 {
-    if (trackDragging || e.mods.isPopupMenu() || e.getDistanceFromDragStart() < 6) return;
+    if (e.eventComponent == &drive || trackDragging || e.mods.isPopupMenu() || e.getDistanceFromDragStart() < 6) return;
     if (auto* c = juce::DragAndDropContainer::findParentDragContainerFor (this))
     {
         trackDragging = true;
@@ -1106,24 +1108,6 @@ MixerPage::MixerPage (EngineHost& h, ProjectDocument& d, SessionController& sc, 
     fader.setTooltip ("Main output level (monitoring level; not part of exports)");
     fader.setValue (settings.getDoubleValue ("mainOutDb", 0.0), juce::sendNotificationSync);
     addAndMakeVisible (fader);
-    masterDrive.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    masterDrive.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    masterDrive.setRange (0.0, 1.0, 0.01);
-    masterDrive.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (v * 100)) + " %"; };
-    masterDrive.setDoubleClickReturnValue (true, 0.0);
-    masterDrive.setPopupDisplayEnabled (true, true, nullptr);
-    masterDrive.setTooltip ("Drive: tape-style saturation on the whole mix (after the main plugins). The meter above shows how hard it is working.");
-    masterDrive.onDragStart = [this] { doc.undo().beginNewTransaction ("Main drive"); };
-    masterDrive.onValueChange = [this] {
-        if (auto m = project::masterNode (doc.tree()); m.isValid() && ! updatingMasterDrive) doc.set (m, ids::drive, masterDrive.getValue());
-    };
-    masterDrive.addMouseListener (this, false);   // right-click: the oversampling menu
-    addAndMakeVisible (masterDrive);
-    masterVuMode.setTooltip ("What the dial shows: DRV = how hard the Drive is working, TRK = the level of the whole mix");
-    masterVuMode.onClick = [this] {
-        if (auto m = project::masterNode (doc.tree()); m.isValid()) { m.setProperty (ids::vuTrack, ! (bool) m[ids::vuTrack], nullptr); masterVuMode.setButtonText ((bool) m[ids::vuTrack] ? "TRK" : "DRV"); repaint(); }
-    };
-    addAndMakeVisible (masterVuMode);
     addAndMakeVisible (meterL);
     addAndMakeVisible (meterR);
 
@@ -1197,45 +1181,10 @@ void MixerPage::rebuild()
     resized();
 }
 
-void MixerPage::showMasterDriveMenu()
-{
-    auto mn = project::masterNode (doc.tree());
-    if (! mn.isValid()) return;
-    juce::PopupMenu m;
-    m.addSectionHeader ("Main drive oversampling");
-    const int cur = juce::jlimit (0, 2, (int) mn.getProperty (ids::driveOs, 1));
-    m.addItem (1, "Off (lightest)", true, cur == 0);
-    m.addItem (2, "2x", true, cur == 1);
-    m.addItem (3, "4x (cleanest, heaviest)", true, cur == 2);
-    m.addSeparator();
-    m.addItem (4, "Reset Drive");
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&masterDrive), [this, safe = juce::Component::SafePointer<MixerPage> (this)] (int r) {
-        if (safe == nullptr || r == 0) return;
-        auto n = project::masterNode (doc.tree());
-        if (! n.isValid()) return;
-        doc.undo().beginNewTransaction ("Main drive");
-        if (r == 4) doc.set (n, ids::drive, 0.0);
-        else doc.set (n, ids::driveOs, r - 1);
-    });
-}
-
 void MixerPage::timerCallback()
 {
     meterL.tick();
     meterR.tick();
-    {
-        const float db = host.engine.masterDriveDb.load (std::memory_order_relaxed);
-        masterDriveLevel = db < masterDriveLevel ? db : juce::jmin (0.0f, masterDriveLevel + 0.6f);
-        masterVuTrackLevel += (juce::jmax (-60.0f, juce::jmax (meterL.levelDb(), meterR.levelDb())) - masterVuTrackLevel) * 0.35f;
-        if (auto m = project::masterNode (doc.tree()); m.isValid()) masterVuMode.setButtonText ((bool) m[ids::vuTrack] ? "TRK" : "DRV");
-        repaint (masterDriveMeter.expanded (2));
-        if (! masterDrive.isMouseButtonDown())
-            if (auto m = project::masterNode (doc.tree()); m.isValid() && std::abs ((double) m[ids::drive] - masterDrive.getValue()) > 0.004)
-            {
-                const juce::ScopedValueSetter<bool> svs (updatingMasterDrive, true);   // loaded / undone from elsewhere
-                masterDrive.setValue ((double) m[ids::drive], juce::dontSendNotification);
-            }
-    }
     if ((++syncTick & 15) == 0 && ! fader.isMouseButtonDown())   // the editor's pop-up mixer may have moved it (twice a second)
     {
         const double db = settings.getDoubleValue ("mainOutDb", 0.0);
@@ -1260,11 +1209,6 @@ void MixerPage::paint (juce::Graphics& g)
 {
     g.fillAll (palette::bg);
     drawSectionPanel (g, masterBox, "Main out");
-    const bool masterTrk = [&] { auto m = project::masterNode (doc.tree()); return m.isValid() && (bool) m[ids::vuTrack]; }();
-    drawVuMeter (g, masterDriveMeter, masterTrk ? masterVuTrackLevel : masterDriveLevel, masterTrk);
-    g.setColour (palette::textDim);
-    g.setFont (uiFont (10.0f));
-    g.drawText ("DRIVE", masterDrive.getBounds().withY (masterDrive.getY() - 14).withHeight (14).expanded (10, 0), juce::Justification::centred);
     g.setFont (uiFont (10.0f));
     for (int db : { 6, 0, -6, -12, -18, -24, -36, -60 })   // at the fader's own positions
     {
@@ -1315,14 +1259,6 @@ void MixerPage::resized()
         masterInsertView.setBounds (s.removeFromTop (juce::jmin (InsertList::visibleRows * InsertList::rowHeight, room)));   // fixed height: plugins never move the fader
         masterInserts->setSize (masterInsertView.getWidth() - (want > masterInsertView.getHeight() ? masterInsertView.getScrollBarThickness() + 1 : 0), juce::jmax (want, masterInsertView.getHeight()));
         s.removeFromTop (8);
-    }
-    {
-        auto d = s.removeFromTop (ChannelStrip::driveHeight + 40);
-        masterDriveMeter = d.removeFromTop (44).withTrimmedTop (2).reduced (14, 0);
-        masterVuMode.setBounds (masterDriveMeter.getRight() - 30, masterDriveMeter.getY() + 3, 26, 13);
-        d.removeFromTop (16);
-        masterDrive.setBounds (d.withSizeKeepingCentre (40, 40));
-        s.removeFromTop (6);
     }
     auto meters = s.removeFromRight (34);
     scale = s.removeFromRight (28);

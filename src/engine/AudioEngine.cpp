@@ -480,7 +480,7 @@ struct AudioEngine::Segment final : GraphMixer::Source
 
     void driveActivity (int slot, float db) noexcept override
     {
-        auto& m = slot < 0 ? e.masterDriveDb : e.driveDb[(size_t) juce::jlimit (0, timeline::maxTracks - 1, slot)];
+        auto& m = e.driveDb[(size_t) juce::jlimit (0, timeline::maxTracks - 1, slot)];
         m.store (db, std::memory_order_relaxed);
     }
 };
@@ -568,7 +568,6 @@ void AudioEngine::process (const float* const* inputs, int numInputs, float* con
     if (auto* g = pendingGraph.exchange (nullptr))
     {
         // a rebuilt snapshot (e.g. while a fader moves) continues seamlessly: no re-triggered notes, no gain jumps
-        if (graph != nullptr) g->masterSaturator = graph->masterSaturator;
         if (graph != nullptr)
             for (auto& nt : g->tracks)
                 for (const auto& ot : graph->tracks)

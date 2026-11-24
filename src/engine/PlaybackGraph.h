@@ -99,9 +99,6 @@ struct PlaybackGraph
     std::array<const float*, fx::InsertChain::maxSlots> masterScL {}, masterScR {};
     std::vector<PlayTrack::Lane> masterLanes;         // automation of the master bus: its volume and its plugins' parameters
     float masterPrevPan = -2.0f;                      // audio thread: the master pan automation of the last block (< -1: none yet)
-    float masterDrive = 0.0f;
-    int masterDriveOs = 1;                         // the master's Drive knob, 0..1
-    fx::Saturator masterSaturator;
     float masterPrevGain = -1.0f;                     // audio thread: the master volume automation of the last block (-1: none yet)
     double sampleRate = 48000.0;
     int missingClips = 0; // clips whose audio is not loaded (yet)

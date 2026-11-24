@@ -291,7 +291,6 @@ void GraphMixer::mix (PlaybackGraph& g, Source& source, float* outL, float* outR
         // every track is read ahead by the master plugins' latency too, so the master's input is that far ahead
         g.masterInserts->process (outL, outR, n, g.masterScL.data(), g.masterScR.data(), g.masterInserts->latency());
     }
-    source.driveActivity (-1, g.masterSaturator.process (outL, outR, n, g.masterDrive, g.masterDriveOs, sr));   // the master's Drive knob
     if (! g.masterLanes.empty())
     {
         const float from = g.masterPrevGain < 0.0f ? autoGain : g.masterPrevGain;   // ramped, so moving automation does not click

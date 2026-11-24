@@ -124,10 +124,11 @@ struct Saturator
             for (int i = 0; i < mh; ++i)
             {
                 const float d = from + stepBase * ((float) s + (float) (i + 1) / (float) factor);
-                const float g = 1.0f + 9.0f * d * d;           // 0 .. +19 dB into the low band's clipper
-                const float gHigh = 1.0f + (g - 1.0f) * 0.35f;  // the highs are driven much less
-                const float bias = 0.12f * d, off = shape (bias) / g;
-                const float hfMix = 0.30f * d, squash = 0.6f * d, bump = 0.18f * d;
+                const float g = 1.0f + 39.0f * std::pow (d, 1.5f);   // 0 .. +32 dB into the low band's clipper
+                const float gHigh = 1.0f + (g - 1.0f) * 0.4f;        // the highs are driven less
+                const float k = 1.0f / (1.0f + (g - 1.0f) * 0.14f), kHigh = 1.0f / (1.0f + (gHigh - 1.0f) * 0.14f);   // keeps the loudness up as it clips
+                const float bias = 0.12f * d, off = shape (bias) * k;
+                const float hfMix = 0.30f * d, squash = 0.12f * d, bump = 0.18f * d;
                 for (int c = 0; c < 2; ++c)
                 {
                     auto& t = tape[c];
@@ -135,7 +136,7 @@ struct Saturator
                     t.lp += aLow * (x - t.lp);
                     t.bump += aBump * (x - t.bump);
                     const float low = t.lp + t.bump * bump, high = x - t.lp;
-                    float y = shape (low * g + bias) / g - off + shape (high * gHigh) / gHigh;
+                    float y = shape (low * g + bias) * k - off + shape (high * gHigh) * kHigh;
                     t.hf += aHf * (y - t.hf);
                     y += (t.hf - y) * hfMix;
                     const float mag = std::abs (y);
@@ -160,7 +161,9 @@ struct Saturator
         }
         for (int i = 0; i < n; ++i) outSum += std::abs (L[i]) + std::abs (R[i]);
         if (inSum < 1.0e-6) return 0.0f;
-        return juce::jmin (0.0f, 20.0f * std::log10 ((float) (outSum / inSum) + 1.0e-6f));
+        // how far below the straight (unclipped) gain the block came out: the saturation at work, for the meter
+        const float gEnd = 1.0f + 39.0f * std::pow (drive, 1.5f), straight = gEnd / (1.0f + (gEnd - 1.0f) * 0.14f);
+        return juce::jmin (0.0f, 20.0f * std::log10 ((float) (outSum / inSum) / straight + 1.0e-6f));
     }
 
 private:

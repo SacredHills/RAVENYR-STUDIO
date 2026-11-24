@@ -89,7 +89,6 @@ public:
     LevelMeter inputMeter, outputMeterL, outputMeterR;
     std::array<LevelMeter, timeline::maxTracks> trackMeters;
     std::array<std::atomic<float>, timeline::maxTracks> driveDb {};   // per strip: how much its Drive knob changed the level this block (dB, <= 0)
-    std::atomic<float> masterDriveDb { 0.0f };
     std::atomic<int> activeInputs { 0 }, activeOutputs { 0 };
 
     /** Mono audio from the analysis input channel for tuner / analysis threads. */

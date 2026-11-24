@@ -157,7 +157,6 @@ std::unique_ptr<PlaybackGraph> buildPlaybackGraph (const juce::ValueTree& tracks
     auto g = std::make_unique<PlaybackGraph>();
     g->sampleRate = opt.sampleRate;
     g->masterInserts = opt.masterInserts;
-    if (opt.masterNode.isValid()) { g->masterDrive = juce::jlimit (0.0f, 1.0f, (float) (double) opt.masterNode[ids::drive]); g->masterDriveOs = juce::jlimit (0, 2, (int) opt.masterNode.getProperty (ids::driveOs, 1)); }
     if (opt.masterNode.isValid())
         for (const auto& lane : automation::activeLanes (opt.masterNode))
         {

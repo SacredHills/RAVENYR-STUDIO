@@ -270,17 +270,10 @@ private:
         int startH = 0;
     } rackDivider { *this };
     void setRackHeight (int h);
-    ScrollSafeSlider fader, masterDrive;
-    float masterDriveLevel = 0.0f;
-    juce::Rectangle<int> masterDriveMeter;
+    ScrollSafeSlider fader;
     MeterView meterL, meterR;
     int syncTick = 0;
     juce::Rectangle<int> masterBox, scale;
-    bool updatingMasterDrive = false;
-    juce::TextButton masterVuMode { "DRV" };
-    float masterVuTrackLevel = -60.0f;
-    void showMasterDriveMenu();
-    void mouseDown (const juce::MouseEvent& e) override { if (e.eventComponent == &masterDrive && e.mods.isPopupMenu()) showMasterDriveMenu(); }
     juce::Label emptyLabel;
     juce::TextButton addTrackButton { "+ Track" };
     std::unique_ptr<InsertList> masterInserts;   // plugins on the master bus
