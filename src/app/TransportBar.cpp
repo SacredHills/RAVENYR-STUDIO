@@ -455,8 +455,9 @@ void TransportBar::resized()
     // in a narrow window every control shrinks a little (down to 70 %) instead of the right-hand end being cut off
     const float k = juce::jlimit (0.7f, 1.0f, (float) (avail - 6 * 4) / (float) fixed0);
     auto S = [k] (int v) { return juce::roundToInt ((float) v * k); };
-    const int meterW = S (116), cpuW = S (84), tunerW = S (116), posW = S (150);
-    const int fixed = S (5 * h) + S (8) + 4 * 4 + 6 + S (30) + S (96) + posW + S (120) + 6 + S (46) + S (124) + tunerW + meterW + cpuW;
+    const int meterW = S (116), cpuW = juce::jmax (S (84), 78), tunerW = S (116), posW = S (150);
+    const int sigW = juce::jmax (S (124), 112);
+    const int fixed = S (5 * h) + S (8) + 4 * 4 + 6 + S (30) + S (96) + posW + S (120) + 6 + S (46) + sigW + tunerW + meterW + cpuW;
     const int gap = juce::jlimit (4, 16, (avail - fixed) / 6);
     const int total = fixed + 6 * gap;
     const int x0 = juce::jmax (8, 40 + (avail - total) / 2);
@@ -491,7 +492,7 @@ void TransportBar::resized()
     tapButton.setBounds (r.removeFromLeft (S (46)).withTrimmedTop (14));
     r.removeFromLeft (gap);
 
-    auto sig = r.removeFromLeft (S (124));
+    auto sig = r.removeFromLeft (sigW);
     sigCaption.setBounds (sig.removeFromTop (14));
     sigNum.setBounds (sig.removeFromLeft (sig.getWidth() / 2).reduced (0, 1));
     sigDen.setBounds (sig.reduced (0, 1));

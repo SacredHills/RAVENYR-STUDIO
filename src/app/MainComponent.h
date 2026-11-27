@@ -23,7 +23,7 @@
 
 namespace ff
 {
-/** The section buttons (two columns, three rows) in the top bar (Settings lives next to the CPU readout instead). */
+/** The section buttons (three columns, two rows) in the top bar (Settings lives next to the CPU readout instead). */
 class SectionNav : public juce::Component, public juce::SettableTooltipClient
 {
 public:

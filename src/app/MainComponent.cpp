@@ -7,8 +7,8 @@ namespace ff
 {
 // ------------------------------------------------------------------ nav
 
-// The section buttons sit in the top bar, left of the transport: two columns, three rows (the hidden section is skipped).
-static constexpr float navFontSize = 16.5f;
+// The section buttons sit in the top bar, left of the transport: three columns, two rows (the hidden section is skipped).
+static constexpr float navFontSize = 15.0f;
 
 int SectionNav::preferredWidth() const
 {
@@ -16,7 +16,7 @@ int SectionNav::preferredWidth() const
     int w = 0;
     for (int i = 0; i < names.size(); ++i)
         if (i != hidden) w = juce::jmax (w, juce::GlyphArrangement::getStringWidthInt (f, names[i]));
-    return 2 * (w + 18) + 4;
+    return 3 * (w + 10) + 4;
 }
 
 juce::Rectangle<int> SectionNav::buttonBounds (int index) const
@@ -25,7 +25,7 @@ juce::Rectangle<int> SectionNav::buttonBounds (int index) const
     int slot = 0;
     for (int i = 0; i < index; ++i)
         if (i != hidden) ++slot;
-    const int cols = 2, rows = 3, gap = 2;
+    const int cols = 3, rows = 2, gap = 2;
     const int bw = (getWidth() - gap * (cols - 1)) / cols, bh = (getHeight() - gap * (rows - 1)) / rows;
     const int col = slot % cols, row = slot / cols;
     return { col * (bw + gap), row * (bh + gap), bw, bh };
@@ -359,7 +359,7 @@ void MainComponent::resized()
         menuBar->setBounds (r.removeFromTop (24));
     auto top = r.removeFromTop (64);
     logoArea = top.removeFromLeft (200);   // the logo, right under the menus
-    nav.setBounds (top.removeFromLeft (nav.preferredWidth()).reduced (0, 5));   // the section buttons: 2 columns x 3 rows, left of the transport
+    nav.setBounds (top.removeFromLeft (nav.preferredWidth()).reduced (0, 5));   // the section buttons: 3 columns x 2 rows, left of the transport
     top.removeFromLeft (8);
     transport->setBounds (top);
     auto status = r.removeFromBottom (26).reduced (10, 0);
