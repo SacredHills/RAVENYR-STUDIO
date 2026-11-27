@@ -270,6 +270,7 @@ void MainComponent::showSection (int index)
     currentSection = index;
     if (doc != nullptr) doc->setUiProperty (doc->tree(), timeline::ids::uiPage, index);   // reopens on this page
     nav.selected = index;
+    nav.repaint();   // the highlighted button follows at once (it used to wait for the next mouse move)
     layoutPages();
     transport->setSettingsActive (index == settingsSection);
     for (int i = 0; i < pages.size(); ++i)
