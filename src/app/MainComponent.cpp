@@ -319,6 +319,13 @@ void MainComponent::timerCallback()
 void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (palette::bg);
+    if (! navBand.isEmpty())   // the same panel as the transport bar, so there is no dark patch behind the page buttons
+    {
+        g.setColour (palette::panel);
+        g.fillRect (navBand);
+        g.setColour (palette::outline);
+        g.drawHorizontalLine (navBand.getBottom() - 1, (float) navBand.getX(), (float) navBand.getRight());
+    }
     if (! logoArea.isEmpty())
     {
         g.setColour (palette::panel);
@@ -359,9 +366,14 @@ void MainComponent::resized()
         menuBar->setBounds (r.removeFromTop (24));
     auto top = r.removeFromTop (64);
     logoArea = top.removeFromLeft (200);   // the logo, right under the menus
-    nav.setBounds (top.removeFromLeft (nav.preferredWidth()).reduced (0, 5));   // the section buttons: 3 columns x 2 rows, left of the transport
-    top.removeFromLeft (8);
+    const int navW = nav.preferredWidth();
+    navBand = top.removeFromLeft (navW + 16);   // the section buttons: 3 columns x 2 rows, left of the transport
     transport->setBounds (top);
+    // centred between the logo and the first transport button
+    const int firstX = transport->getX() + transport->firstControlX();
+    const int space = firstX - navBand.getX();
+    nav.setBounds (juce::jmax (navBand.getX() + 4, navBand.getX() + (space - navW) / 2), navBand.getY() + 5, navW, navBand.getHeight() - 10);
+    navBand = navBand.withRight (transport->getX());
     auto status = r.removeFromBottom (26).reduced (10, 0);
     statusRight.setBounds (status.removeFromRight (status.getWidth() / 2));
     statusLeft.setBounds (status);

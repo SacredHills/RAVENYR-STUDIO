@@ -829,12 +829,10 @@ void ChannelStrip::paint (juce::Graphics& g)
     auto r = getLocalBounds().reduced (3, 0);
     const bool selected = session.isTrackSelected (track);
     // bus strips get a blue-slate background so they stand apart from the track strips
-    // bus strips get a blue-slate background and FX strips a plum one, so they stand apart from the track strips
-    const auto kind = kindOf (track);
-    const auto base = selected ? palette::panelHi : palette::panel;
-    g.setColour (kind == TrackKind::bus ? base.interpolatedWith (juce::Colour (0xff3b62a8), selected ? 0.30f : 0.24f)
-               : kind == TrackKind::fx  ? base.interpolatedWith (juce::Colour (0xff8a4a9e), selected ? 0.30f : 0.24f)
-                                        : base);
+    // bus and FX strips get a lighter grey background so they stand apart from the track strips
+    const bool lighter = ! isAudioTrack (track) && kindOf (track) != TrackKind::instrument;
+    g.setColour (lighter ? (selected ? juce::Colour (0xff4a4a50) : juce::Colour (0xff3c3c42))
+                         : (selected ? palette::panelHi : palette::panel));
     g.fillRoundedRectangle (r.toFloat(), 5.0f);
     if (selected)
     {

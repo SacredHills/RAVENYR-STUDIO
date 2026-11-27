@@ -52,6 +52,8 @@ public:
     ~TransportBar() override;
 
     void resized() override;
+    /** Where the first transport button starts (bar coordinates): the page buttons are centred in the space before it. */
+    int firstControlX() const noexcept { return controlsX; }
     void paint (juce::Graphics&) override;
 
     void rebind();              // after project replaced
@@ -70,6 +72,7 @@ public:
     void mouseMove (const juce::MouseEvent&) override;
 
 private:
+    int controlsX = 0;
     EngineHost& host;
     ProjectDocument& doc;
     juce::ValueTree transportNode, metroNode;

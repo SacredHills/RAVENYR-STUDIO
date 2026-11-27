@@ -462,6 +462,7 @@ void TransportBar::resized()
     const int total = fixed + 6 * gap;
     const int x0 = juce::jmax (8, 40 + (avail - total) / 2);
     auto r = juce::Rectangle<int> (x0, full.getY(), juce::jmin (total, getWidth() - x0 - 36), h);
+    controlsX = x0;
 
     rtzButton.setBounds (r.removeFromLeft (S (h)));
     r.removeFromLeft (4);
