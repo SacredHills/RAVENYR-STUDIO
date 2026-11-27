@@ -164,8 +164,10 @@ jobs:
             # the Chocolatey feed times out now and then (HTTP 504): retry a few times
             if ! command -v makensis >/dev/null && [ ! -x "/c/Program Files (x86)/NSIS/makensis.exe" ]; then
               for attempt in 1 2 3 4 5; do
-                choco install nsis -y --no-progress && break
-                echo "choco install failed (attempt $attempt), retrying"; sleep $((attempt * 20))
+                choco install nsis -y --no-progress || true
+                # choco can exit 0 without installing anything when the feed times out: check the file is really there
+                [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ] && break
+                echo "NSIS is not installed yet (attempt $attempt), retrying"; sleep $((attempt * 20))
               done
             fi
             [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ] || command -v makensis >/dev/null || { echo "NSIS could not be installed"; exit 1; }
