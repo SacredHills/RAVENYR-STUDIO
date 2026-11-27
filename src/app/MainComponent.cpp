@@ -7,25 +7,28 @@ namespace ff
 {
 // ------------------------------------------------------------------ nav
 
+// The section buttons sit in the top bar, left of the transport: two columns, three rows (the hidden section is skipped).
+static constexpr float navFontSize = 16.5f;
+
+int SectionNav::preferredWidth() const
+{
+    auto f = titleFont (navFontSize);
+    int w = 0;
+    for (int i = 0; i < names.size(); ++i)
+        if (i != hidden) w = juce::jmax (w, juce::GlyphArrangement::getStringWidthInt (f, names[i]));
+    return 2 * (w + 18) + 4;
+}
+
 juce::Rectangle<int> SectionNav::buttonBounds (int index) const
 {
-    auto f = titleFont (16.5f);
-    juce::Array<int> widths;
-    int total = 0;
-    for (int i = 0; i < names.size(); ++i)
-    {
-        const int w = i == hidden ? 0 : juce::GlyphArrangement::getStringWidthInt (f, names[i]) + 26;
-        widths.add (w);
-        total += w == 0 ? 0 : w + 6;
-    }
-    int x = (getWidth() - (total - 6)) / 2;   // centred
-    for (int i = 0; i < names.size(); ++i)
-    {
-        if (i == hidden) continue;
-        if (i == index) return { x, 3, widths[i], getHeight() - 6 };
-        x += widths[i] + 6;
-    }
-    return {};
+    if (index == hidden || index < 0 || index >= names.size()) return {};
+    int slot = 0;
+    for (int i = 0; i < index; ++i)
+        if (i != hidden) ++slot;
+    const int cols = 2, rows = 3, gap = 2;
+    const int bw = (getWidth() - gap * (cols - 1)) / cols, bh = (getHeight() - gap * (rows - 1)) / rows;
+    const int col = slot % cols, row = slot / cols;
+    return { col * (bw + gap), row * (bh + gap), bw, bh };
 }
 
 int SectionNav::indexAt (juce::Point<int> p) const
@@ -37,24 +40,17 @@ int SectionNav::indexAt (juce::Point<int> p) const
 
 void SectionNav::paint (juce::Graphics& g)
 {
-    if (fillBackground)
-    {
-        g.fillAll (palette::panel);
-        g.setColour (palette::outline);
-        g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
-    }
-
     for (int i = 0; i < names.size(); ++i)
     {
         if (i == hidden) continue;
         auto b = buttonBounds (i);
         const bool sel = i == selected;
         g.setColour (sel ? palette::panelHi : (i == hover ? palette::panelHi.withAlpha (0.6f) : palette::bg.withAlpha (0.5f)));
-        g.fillRoundedRectangle (b.toFloat(), 4.0f);
+        g.fillRoundedRectangle (b.toFloat(), 3.0f);
         g.setColour (sel ? palette::accent : palette::outline);
-        g.drawRoundedRectangle (b.toFloat().reduced (0.5f), 4.0f, 1.0f);
+        g.drawRoundedRectangle (b.toFloat().reduced (0.5f), 3.0f, 1.0f);
         g.setColour (sel ? palette::text : palette::textDim);
-        g.setFont (titleFont (16.5f));
+        g.setFont (titleFont (navFontSize));
         g.drawText (names[i], b, juce::Justification::centred);
     }
 }
@@ -363,6 +359,8 @@ void MainComponent::resized()
         menuBar->setBounds (r.removeFromTop (24));
     auto top = r.removeFromTop (64);
     logoArea = top.removeFromLeft (200);   // the logo, right under the menus
+    nav.setBounds (top.removeFromLeft (nav.preferredWidth()).reduced (0, 5));   // the section buttons: 2 columns x 3 rows, left of the transport
+    top.removeFromLeft (8);
     transport->setBounds (top);
     auto status = r.removeFromBottom (26).reduced (10, 0);
     statusRight.setBounds (status.removeFromRight (status.getWidth() / 2));
@@ -389,13 +387,8 @@ void MainComponent::returnToStartForSection()
 
 void MainComponent::layoutPages()
 {
-    auto r = pagesArea;
-    nav.setBounds (r.removeFromTop (SectionNav::barHeight));
-    nav.setPaintingIsUnclipped (false);
-    nav.repaint();
     for (auto* p : pages)
-        p->setBounds (r);
-    nav.toFront (false);
+        p->setBounds (pagesArea);
 }
 
 // ------------------------------------------------------------------ file flows

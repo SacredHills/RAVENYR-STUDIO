@@ -86,10 +86,10 @@ ExportDialog::ExportDialog (ProjectDocument& d, SessionController& s, EngineHost
 
     for (auto* c : { &mode, &format, &bits, &rate, &range })
     {
-        c->onChange = [this] { updateSummary(); };
+        c->onChange = [this] { rememberChoices(); updateSummary(); };
         addAndMakeVisible (c);
     }
-    normalize.onClick = [this] { updateSummary(); };
+    normalize.onClick = [this] { rememberChoices(); updateSummary(); };
     addAndMakeVisible (normalize);
 
     styleLabel (summary, 13.0f, palette::text);
@@ -160,16 +160,25 @@ void ExportDialog::updateSummary()
     exportButton.setEnabled (len > 0.0);
 }
 
-void ExportDialog::startExport()
+/** The export choices (stems or full mix, format, depth, rate, normalise) are kept as soon as they change, so they are
+    still there next time even if the dialog is cancelled. */
+void ExportDialog::rememberChoices()
 {
-    auto s = currentSettings();
     settings.setValue ("exportMode", mode.getSelectedId());
     settings.setValue ("exportFormat", format.getSelectedId());
     settings.setValue ("exportBits", bits.getSelectedId());
     settings.setValue ("exportRate", rate.getSelectedId());
     settings.setValue ("exportNormalize", normalize.getToggleState());
+    settings.saveIfNeeded();
+}
 
-    const auto startDir = doc.hasLocation() ? doc.getBundle().getParentDirectory() : juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+void ExportDialog::startExport()
+{
+    auto s = currentSettings();
+    rememberChoices();
+
+    juce::File startDir = doc.hasLocation() ? doc.getBundle().getParentDirectory() : juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+    if (const juce::File last (settings.getValue (s.stems ? "exportStemsDir" : "exportMixDir")); last.isDirectory()) startDir = last;   // where the last export went
     juce::Component::SafePointer<ExportDialog> safe (this);
     if (s.stems)
     {
@@ -196,6 +205,8 @@ void ExportDialog::startExport()
 
 void ExportDialog::runExport (ExportSettings s)
 {
+    settings.setValue (s.stems ? "exportStemsDir" : "exportMixDir", (s.stems ? s.destination : s.destination.getParentDirectory()).getFullPathName());
+    settings.saveIfNeeded();
     session.rigs().captureAllPluginStates();   // the export uses every plugin's current settings
     s.master = project::masterNode (doc.tree()).createCopy();   // master plugins (the tracks are copied without their parent)
     auto* job = new ExportJob (doc.tracks().createCopy(), doc.mediaBundle(), session.cache, s, [] (ExportResult r) {

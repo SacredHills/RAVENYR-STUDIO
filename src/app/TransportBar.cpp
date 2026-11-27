@@ -450,27 +450,31 @@ void TransportBar::resized()
     auto full = getLocalBounds().reduced (10, 8);
     const int h = full.getHeight();
     // one group centred in the bar (the MIDI LED stays at the far right); the gaps shrink when the bar is narrow
-    const int meterW = 116, cpuW = 84, tunerW = 116, posW = 150;
-    const int fixed = 5 * h + 8 + 4 * 4 + 6 + 30 + 96 + posW + 120 + 6 + 46 + 124 + tunerW + meterW + cpuW;
+    const int fixed0 = 5 * h + 8 + 4 * 4 + 6 + 30 + 96 + 150 + 120 + 6 + 46 + 124 + 116 + 116 + 84;
     const int avail = getWidth() - 2 * 40;
+    // in a narrow window every control shrinks a little (down to 70 %) instead of the right-hand end being cut off
+    const float k = juce::jlimit (0.7f, 1.0f, (float) (avail - 6 * 4) / (float) fixed0);
+    auto S = [k] (int v) { return juce::roundToInt ((float) v * k); };
+    const int meterW = S (116), cpuW = S (84), tunerW = S (116), posW = S (150);
+    const int fixed = S (5 * h) + S (8) + 4 * 4 + 6 + S (30) + S (96) + posW + S (120) + 6 + S (46) + S (124) + tunerW + meterW + cpuW;
     const int gap = juce::jlimit (4, 16, (avail - fixed) / 6);
     const int total = fixed + 6 * gap;
     const int x0 = juce::jmax (8, 40 + (avail - total) / 2);
     auto r = juce::Rectangle<int> (x0, full.getY(), juce::jmin (total, getWidth() - x0 - 36), h);
 
-    rtzButton.setBounds (r.removeFromLeft (h));
+    rtzButton.setBounds (r.removeFromLeft (S (h)));
     r.removeFromLeft (4);
-    playButton.setBounds (r.removeFromLeft (h + 8));
+    playButton.setBounds (r.removeFromLeft (S (h + 8)));
     r.removeFromLeft (4);
-    recordButton.setBounds (r.removeFromLeft (h));
+    recordButton.setBounds (r.removeFromLeft (S (h)));
     r.removeFromLeft (4);
-    loopButton.setBounds (r.removeFromLeft (h));
+    loopButton.setBounds (r.removeFromLeft (S (h)));
     r.removeFromLeft (4);
-    clickButton.setBounds (r.removeFromLeft (h));
+    clickButton.setBounds (r.removeFromLeft (S (h)));
     r.removeFromLeft (2);
-    clickSettingsButton.setBounds (r.removeFromLeft (28).withSizeKeepingCentre (28, h * 2 / 3));
+    clickSettingsButton.setBounds (r.removeFromLeft (S (28)).withSizeKeepingCentre (S (28), h * 2 / 3));
     r.removeFromLeft (6);
-    auto small = r.removeFromLeft (96);
+    auto small = r.removeFromLeft (S (96));
     punchButton.setBounds (small.removeFromTop (h / 2 - 1));
     countInButton.setBounds (small.removeFromBottom (h / 2 - 1));
     r.removeFromLeft (gap);
@@ -480,17 +484,17 @@ void TransportBar::resized()
     timeLabel.setBounds (pos);
     r.removeFromLeft (gap);
 
-    auto tempo = r.removeFromLeft (120);
+    auto tempo = r.removeFromLeft (S (120));
     bpmCaption.setBounds (tempo.removeFromTop (14));
     tempoSlider.setBounds (tempo.reduced (0, 1));
     r.removeFromLeft (6);
-    tapButton.setBounds (r.removeFromLeft (46).withTrimmedTop (14));
+    tapButton.setBounds (r.removeFromLeft (S (46)).withTrimmedTop (14));
     r.removeFromLeft (gap);
 
-    auto sig = r.removeFromLeft (124);
+    auto sig = r.removeFromLeft (S (124));
     sigCaption.setBounds (sig.removeFromTop (14));
-    sigNum.setBounds (sig.removeFromLeft (60).reduced (0, 1));
-    sigDen.setBounds (sig.removeFromRight (60).reduced (0, 1));
+    sigNum.setBounds (sig.removeFromLeft (sig.getWidth() / 2).reduced (0, 1));
+    sigDen.setBounds (sig.reduced (0, 1));
     r.removeFromLeft (gap);
 
     tunerDisplay.setBounds (r.removeFromLeft (tunerW));

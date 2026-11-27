@@ -828,7 +828,10 @@ void ChannelStrip::paint (juce::Graphics& g)
 {
     auto r = getLocalBounds().reduced (3, 0);
     const bool selected = session.isTrackSelected (track);
-    g.setColour (selected ? palette::panelHi : palette::panel);
+    // bus strips get a blue-slate background so they stand apart from the track strips
+    const bool isBusStrip = kindOf (track) == TrackKind::bus;
+    g.setColour (isBusStrip ? (selected ? palette::panelHi : palette::panel).interpolatedWith (juce::Colour (0xff3b62a8), selected ? 0.30f : 0.24f)
+                            : (selected ? palette::panelHi : palette::panel));
     g.fillRoundedRectangle (r.toFloat(), 5.0f);
     if (selected)
     {

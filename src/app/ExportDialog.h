@@ -29,6 +29,7 @@ private:
     void updateSummary();
     ExportSettings currentSettings() const;
     void startExport();
+    void rememberChoices();
     void runExport (ExportSettings);
 };
 } // namespace ff

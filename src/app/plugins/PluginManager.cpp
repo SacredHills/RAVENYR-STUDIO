@@ -349,11 +349,29 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
         }
         void timerCallback() override
         {
+            checkStretch();
             syncBypass();
             pollUndo();
             if (++ticks % 50 == 0) fx::markPluginStateChanged (plugin);   // some plugins never tell the host about changes
         }
         int ticks = 0;
+        // A plugin that says it can be resized but does not follow the window (it keeps its own size) must not be stretched:
+        // once the window has been resized and the plugin has not followed it, the window is locked to the plugin's size.
+        bool stretch = true;
+        juce::uint32 resizeAt = 0;
+        std::function<void()> onNoStretch;
+        void checkStretch()
+        {
+            if (resizeAt == 0 || juce::Time::getMillisecondCounter() - resizeAt < 700) return;
+            resizeAt = 0;
+            if (! stretch) return;
+            if (std::abs (editor.getWidth() - getWidth()) > 2 || std::abs (editor.getHeight() - (getHeight() - bar)) > 2)
+            {
+                stretch = false;
+                if (onNoStretch) onNoStretch();
+                fit();
+            }
+        }
         void componentMovedOrResized (juce::Component&, bool, bool wasResized) override { if (wasResized && ! resizing) fit(); }
         void resized() override
         {
@@ -384,9 +402,10 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
             top.removeFromRight (compact ? 3 : 6);
             status.setBounds (top);
             const juce::ScopedValueSetter<bool> svs (resizing, true);
-            if (editor.isResizable() && editor.getWidth() >= minBarWidth)
+            if (stretch && editor.isResizable() && editor.getWidth() >= minBarWidth)
             {
                 editor.setBounds (r);
+                resizeAt = juce::Time::getMillisecondCounter();
             }
             else editor.setTopLeftPosition (r.getX() + juce::jmax (0, (r.getWidth() - editor.getWidth()) / 2), r.getY());
         }
@@ -424,7 +443,14 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
         editor.reset (ed);
         content = std::make_unique<Content> (m, plugin, *ed, std::move (bypass));
         setContentNonOwned (content.get(), true);
-        setResizable (ed->isResizable(), false);
+        stretchable = ed->isResizable() && ! m.settings.getBoolValue ("pluginNoStretch:" + plugin->getName(), false);   // not one found not to stretch
+        content->stretch = stretchable;
+        content->onNoStretch = [this] {
+            stretchable = false;
+            setResizable (false, false);
+            if (manager != nullptr) manager->settings.setValue ("pluginNoStretch:" + plugin->getName(), true);   // remembered for next time
+        };
+        setResizable (stretchable, false);
         content->onPin = [this, &m, title] (bool on) {
             setAlwaysOnTop (on);
             if (on) { m.pinnedWindows.insert (title); toFront (true); } else m.pinnedWindows.erase (title);
@@ -436,7 +462,7 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
         }
         floating = std::make_unique<FloatAboveApp> (*this);
         centreWithSize (getWidth(), getHeight());
-        if (ed->isResizable())
+        if (stretchable)
         {
             // never smaller than the plugin allows (its own minimum, or the size it opened at); larger is fine
             int minW = ed->getWidth(), minH = ed->getHeight();
@@ -460,7 +486,7 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
     juce::String sizeKey() const { return "pluginWinSize:" + plugin->getName(); }
     void rememberSize()
     {
-        if (editor != nullptr && editor->isResizable() && manager != nullptr)
+        if (editor != nullptr && stretchable && manager != nullptr)
             manager->settings.setValue (sizeKey(), juce::String (getWidth()) + "," + juce::String (getHeight()));
     }
     ~EditorWindow() override
@@ -481,6 +507,7 @@ struct PluginManager::EditorWindow final : public juce::DocumentWindow
     std::unique_ptr<Content> content;
     std::unique_ptr<FloatAboveApp> floating;
     std::function<void()> onClosed;
+    bool stretchable = false;
 };
 
 void PluginManager::copySettings (juce::AudioPluginInstance& p)
