@@ -831,7 +831,7 @@ void ChannelStrip::paint (juce::Graphics& g)
     // bus strips get a blue-slate background so they stand apart from the track strips
     // bus and FX strips get a lighter grey background so they stand apart from the track strips
     const bool lighter = ! isAudioTrack (track) && kindOf (track) != TrackKind::instrument;
-    g.setColour (lighter ? (selected ? juce::Colour (0xff4a4a50) : juce::Colour (0xff3c3c42))
+    g.setColour (lighter ? (selected ? juce::Colour (0xff35353a) : juce::Colour (0xff2c2c31))
                          : (selected ? palette::panelHi : palette::panel));
     g.fillRoundedRectangle (r.toFloat(), 5.0f);
     if (selected)
@@ -849,6 +849,17 @@ void ChannelStrip::paint (juce::Graphics& g)
     g.fillRoundedRectangle (r.removeFromTop (6).toFloat(), 3.0f);
 
     drawLevelMeter (g, meterArea(), level, hold, clipTicks > 0, true);
+    {   // dB lines and numbers beside the fader, at the fader's own positions
+        const int cx = fader.getBounds().getCentreX(), numX = meterArea().getX() - 30;
+        g.setFont (uiFont (9.5f));
+        for (int db : { 6, 0, -6, -12, -18, -24, -36, -60 })
+        {
+            const int y = fader.getY() + juce::roundToInt (fader.getPositionOfValue ((double) db));
+            g.setColour (db == 0 ? palette::text.withAlpha (0.8f) : palette::textDim.withAlpha (0.7f));
+            g.fillRect (cx + 10, y, db == 0 ? 10 : 6, 1);
+            g.drawText (db > 0 ? "+" + juce::String (db) : juce::String (db), numX, y - 6, 28, 12, juce::Justification::centredRight);
+        }
+    }
     g.setColour (palette::textDim);
     g.setFont (uiFont (10.0f));
     if (showDrive)

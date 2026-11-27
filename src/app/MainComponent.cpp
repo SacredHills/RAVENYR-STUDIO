@@ -374,6 +374,7 @@ void MainComponent::resized()
     const int space = firstX - navBand.getX();
     nav.setBounds (juce::jmax (navBand.getX() + 4, navBand.getX() + (space - navW) / 2), navBand.getY() + 5, navW, navBand.getHeight() - 10);
     navBand = navBand.withRight (transport->getX());
+    nav.toFront (false);   // centred in a wide window the buttons can lie over the transport bar: they must stay on top
     auto status = r.removeFromBottom (26).reduced (10, 0);
     statusRight.setBounds (status.removeFromRight (status.getWidth() / 2));
     statusLeft.setBounds (status);
