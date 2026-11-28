@@ -945,6 +945,8 @@ void Ruler::mouseDown (const juce::MouseEvent& e)
             tempoDrag = ch;
             tempoDragBase = isBase;
             tempoGrabDx = ch.isValid() ? (float) e.x - owner.geo.xFor (owner.geo.tempoMap.secondsAtQuarter ((double) ch[pids::beat])) : 0.0f;
+            tempoGrabBpm = (ch.isValid() ? (double) ch[pids::bpm] : owner.doc.tempo()) - tempoBpmAt ((float) e.y, dragLo, dragHi);
+            tempoMoved = false;
             owner.doc.undo().beginNewTransaction ("Move tempo point");
         }
         return;
@@ -1055,7 +1057,11 @@ void Ruler::mouseDrag (const juce::MouseEvent& e)
 {
     if (tempoDrag.isValid() || tempoDragBase)
     {
-        const double bpm = juce::jlimit (10.0, 500.0, e.mods.isAltDown() ? tempoBpmAt ((float) e.y, dragLo, dragHi) : std::round (tempoBpmAt ((float) e.y, dragLo, dragHi)));
+        // like the automation points: a click on a point does not move it, only a drag does, and it moves from where it was grabbed
+        if (! tempoMoved && e.getDistanceFromDragStart() < 4) return;
+        tempoMoved = true;
+        const double under = tempoBpmAt ((float) e.y, dragLo, dragHi) + tempoGrabBpm;
+        const double bpm = juce::jlimit (10.0, 500.0, e.mods.isAltDown() ? under : std::round (under));
         if (tempoDragBase) { if (std::abs (bpm - owner.doc.tempo()) > 1.0e-9) owner.doc.set (owner.doc.transport(), pids::bpm, bpm); return; }
         const double q = dragQuarterFor ((float) e.x, bpm, ! e.mods.isAltDown());
         if (std::abs (q - (double) tempoDrag[pids::beat]) > 1.0e-9) owner.doc.set (tempoDrag, pids::beat, q);
@@ -2308,8 +2314,7 @@ ArrangeView::ArrangeView (ProjectDocument& d, EngineHost& h, SessionController& 
 {
     addTrackButton.setTooltip ("Add a track: audio (Ctrl+T), instrument, bus or FX. You can also right-click the empty space below the tracks.");
     importButton.setTooltip ("Import WAV/AIFF/FLAC/OGG/MP3 onto the selected track at the playhead, or a MIDI file as instrument tracks (Ctrl+I)");
-    zoomInButton.setTooltip ("Zoom in (Ctrl + mouse wheel)");
-    zoomOutButton.setTooltip ("Zoom out");
+    zoomSlider.setTooltip ("Zoom (Ctrl + mouse wheel)");
     fitButton.setTooltip ("Zoom to fit the song");
     addTrackButton.onRightClick = [this] { session.showAddTrackMenu (&addTrackButton); };
     headerHolder.onEmptyClick = [this] (const juce::MouseEvent& e) {
@@ -2320,11 +2325,16 @@ ArrangeView::ArrangeView (ProjectDocument& d, EngineHost& h, SessionController& 
         session.showAddTrackMenu (&addTrackButton, session.primaryTrack().isValid() ? doc.tracks().indexOf (session.primaryTrack()) + 1 : -1);
     };
     importButton.onClick = [this] { importAudioDialog(); };
-    zoomInButton.onClick = [this] { zoom (1.5); };
-    zoomOutButton.onClick = [this] { zoom (1.0 / 1.5); };
+    zoomSlider.setRange (std::log (2.0), std::log (2000.0), 0.001);
+    zoomSlider.setDoubleClickReturnValue (false, 0.0);
+    zoomSlider.setWantsKeyboardFocus (false);
+    zoomSlider.onValueChange = [this] {
+        if (updatingZoomSlider) return;
+        zoom (std::exp (zoomSlider.getValue()) / geo.pixelsPerSecond);
+    };
+    addAndMakeVisible (zoomSlider);
     fitButton.onClick = [this] { zoomToFit(); };
-    for (juce::Button* b : { (juce::Button*) &addTrackButton, (juce::Button*) &importButton, (juce::Button*) &zoomInButton,
-                             (juce::Button*) &zoomOutButton, (juce::Button*) &fitButton })
+    for (juce::Button* b : { (juce::Button*) &addTrackButton, (juce::Button*) &importButton, (juce::Button*) &fitButton })
     {
         b->setWantsKeyboardFocus (false);
         addAndMakeVisible (b);
@@ -2596,6 +2606,9 @@ void ArrangeView::updateScrollBars()
     vScroll.setRangeLimits (0.0, juce::jmax (contentH, canvas.getHeight()), juce::dontSendNotification);
     geo.scrollY = juce::jlimit (0, juce::jmax (0, contentH - canvas.getHeight()), geo.scrollY);
     vScroll.setCurrentRange (geo.scrollY, canvas.getHeight(), juce::dontSendNotification);
+    updatingZoomSlider = true;   // the slider follows every other way of zooming (wheel, Fit, ruler)
+    zoomSlider.setValue (std::log (juce::jlimit (2.0, 2000.0, geo.pixelsPerSecond)), juce::dontSendNotification);
+    updatingZoomSlider = false;
     layoutHeaders();
 }
 
@@ -2758,11 +2771,6 @@ void ArrangeView::resized()
         allMute.setBounds (c.removeFromLeft (26));
         allSolo.setBounds (c.removeFromRight (26));
     }
-    fitButton.setBounds (tb.removeFromRight (44));
-    tb.removeFromRight (4);
-    zoomInButton.setBounds (tb.removeFromRight (30));
-    tb.removeFromRight (4);
-    zoomOutButton.setBounds (tb.removeFromRight (30));
 
     if (miniMixer != nullptr)
     {
@@ -2783,8 +2791,14 @@ void ArrangeView::resized()
     auto rulerRow = r.removeFromTop (rulerHeight());
     rulerRow.removeFromLeft (headerWidth);
     ruler.setBounds (rulerRow.withTrimmedRight (12));
-    auto bottom = r.removeFromBottom (12);
-    hScroll.setBounds (bottom.withTrimmedLeft (headerWidth).withTrimmedRight (12));
+    auto bottom = r.removeFromBottom (22);
+    {   // the zoom slider and Fit sit in the bottom-right corner, where the scroll bars meet
+        auto corner = bottom.removeFromRight (186).reduced (2);
+        fitButton.setBounds (corner.removeFromRight (40));
+        corner.removeFromRight (6);
+        zoomSlider.setBounds (corner);
+    }
+    hScroll.setBounds (bottom.withTrimmedLeft (headerWidth).withSizeKeepingCentre (juce::jmax (0, bottom.getWidth() - headerWidth), 12));
     masterLane.setVisible (masterShown);
     masterHeader.setVisible (masterShown);
     if (masterShown)

@@ -1320,11 +1320,41 @@ void DrumPage::midiToEditor (const juce::ValueTree& pattern)
     dir.createDirectory();
     const auto file = dir.getChildFile (juce::File::createLegalFileName (name) + ".mid");
     if (auto r = drums::exportMidi (drums, pattern, doc.tempo(), file); r.failed()) { message ("Export MIDI to the Editor", r.getErrorMessage()); return; }
+    // every exported MIDI goes onto the same MIDI track, one after another; a new track is made only when there is none
+    juce::ValueTree target;
+    for (auto t : doc.tracks())
+    {
+        if (! timeline::isInstrumentTrack (t)) continue;
+        bool drumKit = false;
+        for (auto c : t)
+            if (c.hasType (midiclip::INSTRUMENT) && c[rig::ids::desc].toString().contains ("fretforge:drumkit")) drumKit = true;
+        if (drumKit) { target = t; break; }       // a drum track first
+        if (! target.isValid()) target = t;       // else the first MIDI track
+    }
+    double at = 0.0;
+    if (target.isValid())
+    {
+        double end = 0.0;
+        for (auto c : target)
+            if (c.hasType (timeline::ids::CLIP)) end = juce::jmax (end, (double) c[timeline::ids::start] + (double) c[timeline::ids::length]);
+        if (end > 0.0)   // right after the last clip, on the next bar line
+        {
+            const auto map = doc.tempoMap();
+            auto ts = doc.tree().getChildWithName (project::ids::TRANSPORT);
+            const double barQ = juce::jmax (1.0, (int) ts[project::ids::tsNum] * 4.0 / juce::jmax (1, (int) ts[project::ids::tsDen]));
+            at = map.secondsAtQuarter (std::ceil (map.quarterAtSeconds (end) / barQ - 1.0e-4) * barQ);
+        }
+    }
     const int before = doc.tracks().getNumChildren();
-    const auto r = session.importMidi (file, 0.0);   // a drum instrument track with one MIDI clip, in one undo step
+    const auto r = session.importMidi (file, at, target);
     file.deleteFile();
     if (r.failed()) { message ("Export MIDI to the Editor", r.getErrorMessage()); return; }
-    for (int i = before; i < doc.tracks().getNumChildren(); ++i)   // named after the pattern, not the temporary file
+    if (target.isValid())
+    {
+        for (auto c : target)   // the clip just added is the last one: named after the pattern
+            if (c.hasType (timeline::ids::CLIP) && (double) c[timeline::ids::start] >= at - 1.0e-6) c.setProperty (timeline::ids::name, name, &doc.undo());
+    }
+    for (int i = before; i < doc.tracks().getNumChildren(); ++i)   // a new track is named after the pattern, not the temporary file
     {
         auto t = doc.tracks().getChild (i);
         t.setProperty (timeline::ids::name, name, nullptr);
@@ -1332,9 +1362,14 @@ void DrumPage::midiToEditor (const juce::ValueTree& pattern)
             if (c.hasType (timeline::ids::CLIP)) c.setProperty (timeline::ids::name, name, nullptr);
     }
     const auto c = drums::compile (drums, pattern, 1);
-    message ("MIDI added to the Editor", "Added the track \"" + name + "\" (" + juce::String ((int) c.bars.size()) + (c.bars.size() == 1 ? " bar" : " bars")
-                                             + ") to the Editor, starting at bar 1. It plays the built-in Drum Kit; double-click the "
-                                               "clip to edit the notes, or right-click the instrument to use another drum plugin.");
+    const auto bars = juce::String ((int) c.bars.size()) + (c.bars.size() == 1 ? " bar" : " bars");
+    if (target.isValid())
+        message ("MIDI added to the Editor", "Added \"" + name + "\" (" + bars + ") to the track \"" + target[timeline::ids::name].toString()
+                                                 + "\", right after the last clip.");
+    else
+        message ("MIDI added to the Editor", "Added the track \"" + name + "\" (" + bars
+                                                 + ") to the Editor, starting at bar 1. It plays the built-in Drum Kit; double-click the "
+                                                   "clip to edit the notes, or right-click the instrument to use another drum plugin.");
 }
 
 // ------------------------------------------------------------------ sample kit

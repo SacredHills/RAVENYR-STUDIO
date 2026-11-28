@@ -1171,7 +1171,7 @@ void SessionController::showInstrumentContextMenu (juce::ValueTree track, juce::
         if (r == -14) { removeInstrumentOutputTracks (track); return; }
         juce::String name;
         const auto desc = plugins->descriptionForMenuResult (r, PluginManager::instrumentMenu, name);
-        if (desc.isNotEmpty()) setInstrument (track, desc, name);
+        if (desc.isNotEmpty()) { setInstrument (track, desc, name); openInstrumentWhenLoaded (track, desc); }
     });
 }
 
@@ -1212,7 +1212,7 @@ void SessionController::showInstrumentMenu (juce::ValueTree track, juce::Compone
         if (r == -2) { plugins->showManager(); return; }
         juce::String name;
         const auto desc = plugins->descriptionForMenuResult (r, PluginManager::instrumentMenu, name);
-        if (desc.isNotEmpty()) setInstrument (track, desc, name);
+        if (desc.isNotEmpty()) { setInstrument (track, desc, name); openInstrumentWhenLoaded (track, desc); }
     });
 }
 
@@ -1232,6 +1232,21 @@ void SessionController::openInstrument (juce::ValueTree track)
         const auto st = rigBank->instrumentStatus (track);
         if (onError) onError ("Instrument", st.error.isNotEmpty() ? st.error : juce::String ("The instrument is still loading."));
     }
+}
+
+/** A plugin instrument that was just chosen opens its window as soon as it has loaded. */
+void SessionController::openInstrumentWhenLoaded (juce::ValueTree track, const juce::String& desc, int triesLeft)
+{
+    if (! track.isValid() || track.getParent() == juce::ValueTree()) return;   // the track went away
+    const auto st = rigBank->instrumentStatus (track);
+    if (st.desc == desc && st.error.isNotEmpty()) { if (onError) onError ("Instrument", st.error); return; }
+    if (st.desc == desc && st.loaded && rigBank->instrumentPlugin (track) != nullptr) { openInstrument (track); return; }
+    if (triesLeft <= 0) return;
+    std::weak_ptr<bool> alive = life;
+    juce::Timer::callAfterDelay (150, [this, alive, track, desc, triesLeft] {
+        if (alive.lock() == nullptr) return;
+        openInstrumentWhenLoaded (track, desc, triesLeft - 1);
+    });
 }
 
 // ---- the Drum Studio's instrument: a plugin that plays the pattern's hits instead of the built-in kit ----

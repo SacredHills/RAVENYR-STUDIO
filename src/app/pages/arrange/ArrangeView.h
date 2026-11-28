@@ -237,6 +237,8 @@ private:
     double dragQuarterFor (float x, double bpm, bool snapOn) const;
     double newPointQuarter (juce::Point<int> p, bool snapOn, double bpm = 0.0);
     float tempoGrabDx = 0.0f;   // where the pointer grabbed the dot, relative to its centre
+    double tempoGrabBpm = 0.0;  // the same vertically, in BPM
+    bool tempoMoved = false;    // a press on a dot only moves it once the pointer has been dragged a few pixels
     // loop bar (like Studio One): drag the bar to move it, its ends to resize it, the empty strip to draw a new one
     enum class LoopDrag { none, move, left, right, draw } loopDrag = LoopDrag::none;
     double loopA0 = 0.0, loopB0 = 0.0;
@@ -374,8 +376,10 @@ private:
     } headerHolder;
     juce::OwnedArray<TrackHeader> headers;
     juce::ScrollBar hScroll { false }, vScroll { true };
+    bool updatingZoomSlider = false;
+    juce::Slider zoomSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };   // zoom out ... in (logarithmic), bottom-right corner
     ContextButton addTrackButton { "+ Track" };
-    juce::TextButton importButton { "Import" }, zoomInButton { "+" }, zoomOutButton { "-" },
+    juce::TextButton importButton { "Import" },
         fitButton { "Fit" }, followButton { "Follow" }, sliceButton { "Slice" }, autoButton { "Automation" }, tempoButton { "Tempo Track" };
     juce::TextButton mixerButton { "Mixer" };   // pops the mixer up under the tracks
     std::unique_ptr<MiniMixer> miniMixer;
